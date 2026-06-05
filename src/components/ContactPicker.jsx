@@ -20,6 +20,7 @@ const STATUS_COLORS = {
 export default function ContactPicker({ onClose, onSelectSingle, onSelectMultiple }) {
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [segment, setSegment] = useState('All');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(new Set());
@@ -30,11 +31,17 @@ export default function ContactPicker({ onClose, onSelectSingle, onSelectMultipl
 
   async function load() {
     setLoading(true);
+    setError(null);
     try {
       const data = await api.getNotionContacts(segment === 'All' ? '' : segment, '');
       setContacts(data);
     } catch (e) {
-      console.error(e);
+      const msg = e.message || '';
+      if (msg.includes('not configured') || msg.includes('500') || msg.includes('503')) {
+        setError('Notion env vars not set on Koyeb yet.\nAdd NOTION_API_KEY + NOTION_DATABASE_ID in your Koyeb service → Environment, then redeploy.');
+      } else {
+        setError('Failed to load contacts. Check backend logs.');
+      }
     } finally {
       setLoading(false);
     }
@@ -141,6 +148,10 @@ export default function ContactPicker({ onClose, onSelectSingle, onSelectMultipl
         <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className="text-center text-wa-muted text-sm py-8">Loading...</div>
+          ) : error ? (
+            <div className="mx-4 mt-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl">
+              <p className="text-xs text-red-400 whitespace-pre-line leading-relaxed">{error}</p>
+            </div>
           ) : filtered.length === 0 ? (
             <div className="text-center text-wa-muted text-sm py-8">No contacts found</div>
           ) : (

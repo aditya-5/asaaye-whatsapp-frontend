@@ -157,7 +157,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen flex overflow-hidden w-full">
+    <div className="flex-1 flex overflow-hidden w-full min-h-0">
       <Toaster position="top-right" toastOptions={TOAST_OPTS} />
 
       {/* Sidebar */}
