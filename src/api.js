@@ -1,9 +1,10 @@
 const ENV_URL = import.meta.env.VITE_API_URL || '';
-const API_URL = ENV_URL.startsWith('http') ? ENV_URL : (ENV_URL ? `https://${ENV_URL}` : 'https://zippy-adventure-production-29d7.up.railway.app');
+const API_URL = ENV_URL.startsWith('http') ? ENV_URL : (ENV_URL ? `https://${ENV_URL}` : 'https://managing-selia-asaaye-fe641587.koyeb.app');
+const API_KEY = import.meta.env.VITE_API_KEY || '';
 
 async function request(path, options = {}) {
   const res = await fetch(`${API_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY, ...options.headers },
     ...options,
   });
   if (!res.ok) {

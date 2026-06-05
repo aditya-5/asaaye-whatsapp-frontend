@@ -12,9 +12,11 @@ export function useWebSocket(onMessage) {
 
   const connect = useCallback(() => {
     const ENV_URL = import.meta.env.VITE_API_URL || '';
-    const wsUrl = ENV_URL 
+    const API_KEY = import.meta.env.VITE_API_KEY || '';
+    const base = ENV_URL
       ? (ENV_URL.startsWith('http') ? ENV_URL.replace(/^http/, 'ws') + '/ws' : `wss://${ENV_URL}/ws`)
-      : 'wss://zippy-adventure-production-29d7.up.railway.app/ws';
+      : 'wss://managing-selia-asaaye-fe641587.koyeb.app/ws';
+    const wsUrl = API_KEY ? `${base}?api_key=${API_KEY}` : base;
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;

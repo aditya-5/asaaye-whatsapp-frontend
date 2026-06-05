@@ -163,7 +163,7 @@ export default function App() {
             onChange={(e) => setPassword(e.target.value)}
             onKeyDown={(e) => {
                if(e.key === 'Enter') {
-                 if(password === 'saumya') {
+                 if(password === (import.meta.env.VITE_APP_PASSWORD || 'saumya@asaaye')) {
                    localStorage.setItem('auth', 'true');
                    setAuthed(true);
                  } else {
@@ -175,7 +175,7 @@ export default function App() {
           />
           <button 
             onClick={() => {
-              if(password === 'saumya') {
+              if(password === (import.meta.env.VITE_APP_PASSWORD || 'saumya@asaaye')) {
                 localStorage.setItem('auth', 'true');
                 setAuthed(true);
               } else {

@@ -23,5 +23,9 @@ dist-ssr/
 *.ntvsproj
 *.njsproj
 
+# Env files
+.env
+.env.local
+
 # Vercel Cache
 .vercel/
