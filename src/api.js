@@ -15,41 +15,60 @@ async function request(path, options = {}) {
 }
 
 export const api = {
-  getConversations: (search = '') =>
-    request(`/api/conversations?search=${encodeURIComponent(search)}`),
-
-  deleteConversation: (id) => 
-    request(`/api/conversations/${id}`, { method: 'DELETE' }),
-
+  // Conversations
+  getConversations: (search = '', status = '') =>
+    request(`/api/conversations?search=${encodeURIComponent(search)}&status=${encodeURIComponent(status)}`),
+  deleteConversation: (id) => request(`/api/conversations/${id}`, { method: 'DELETE' }),
   updateContactName: (id, name) =>
-    request(`/api/conversations/${id}/contact`, { 
-      method: 'PATCH', 
-      body: JSON.stringify({ name }) 
-    }),
+    request(`/api/conversations/${id}/contact`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  markAsRead: (id) => request(`/api/conversations/${id}/read`, { method: 'POST' }),
+  updateStatus: (id, status) =>
+    request(`/api/conversations/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  updateLabels: (id, labels) =>
+    request(`/api/conversations/${id}/labels`, { method: 'PATCH', body: JSON.stringify({ labels }) }),
 
+  // Messages
   getMessages: (conversationId, limit = 50, offset = 0) =>
     request(`/api/conversations/${conversationId}/messages?limit=${limit}&offset=${offset}`),
-
   sendText: (phone, message, contactName = null) =>
-    request('/api/messages/send', {
-      method: 'POST',
-      body: JSON.stringify({ phone, message, contact_name: contactName }),
-    }),
+    request('/api/messages/send', { method: 'POST', body: JSON.stringify({ phone, message, contact_name: contactName }) }),
+  sendTemplate: (data) => request('/api/messages/send-template', { method: 'POST', body: JSON.stringify(data) }),
+  sendMedia: (data) => request('/api/messages/send-media', { method: 'POST', body: JSON.stringify(data) }),
+  deleteMessage: (messageId) => request(`/api/messages/${messageId}`, { method: 'DELETE' }),
 
-  sendTemplate: (data) =>
-    request('/api/messages/send-template', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
+  // Templates
   getTemplates: () => request('/api/templates'),
 
-  deleteMessage: (messageId) => 
-    request(`/api/messages/${messageId}`, { method: 'DELETE' }),
+  // Notes
+  getNotes: (conversationId) => request(`/api/conversations/${conversationId}/notes`),
+  createNote: (conversationId, content) =>
+    request(`/api/conversations/${conversationId}/notes`, { method: 'POST', body: JSON.stringify({ content }) }),
+  deleteNote: (conversationId, noteId) =>
+    request(`/api/conversations/${conversationId}/notes/${noteId}`, { method: 'DELETE' }),
 
-  markAsRead: (conversationId) =>
-    request(`/api/conversations/${conversationId}/read`, { method: 'POST' }),
+  // Reminders
+  getReminder: (conversationId) => request(`/api/conversations/${conversationId}/reminder`),
+  setReminder: (conversationId, remind_at, note = null) =>
+    request(`/api/conversations/${conversationId}/reminder`, { method: 'POST', body: JSON.stringify({ remind_at, note }) }),
+  clearReminder: (conversationId) =>
+    request(`/api/conversations/${conversationId}/reminder`, { method: 'DELETE' }),
 
+  // Quick replies
+  getQuickReplies: () => request('/api/quick-replies'),
+  createQuickReply: (title, body) =>
+    request('/api/quick-replies', { method: 'POST', body: JSON.stringify({ title, body }) }),
+  deleteQuickReply: (id) => request(`/api/quick-replies/${id}`, { method: 'DELETE' }),
+
+  // Media (S3 presign)
+  presignUpload: (filename, content_type) =>
+    request('/api/media/presign', { method: 'POST', body: JSON.stringify({ filename, content_type }) }),
+
+  // Notion
+  getNotionContacts: (segment = '', search = '') =>
+    request(`/api/notion/contacts?segment=${encodeURIComponent(segment)}&search=${encodeURIComponent(search)}`),
+  blastTemplate: (data) => request('/api/notion/blast', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Analytics
   getAnalyticsSummary: () => request('/api/analytics/summary'),
   getDailyAnalytics: (days = 30) => request(`/api/analytics/daily?days=${days}`),
   getSystemAlerts: () => request('/api/analytics/alerts'),
