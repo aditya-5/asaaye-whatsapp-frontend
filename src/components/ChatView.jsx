@@ -8,9 +8,9 @@ import { api } from '../api';
 import { getInitials } from './Sidebar';
 
 const STATUS_OPTIONS = [
-  { value: 'open', label: 'Open', color: 'text-wa-green' },
-  { value: 'pending', label: 'Pending', color: 'text-yellow-400' },
-  { value: 'closed', label: 'Closed', color: 'text-wa-muted' },
+  { value: 'open', label: 'Open', active: 'bg-wa-green text-wa-darker border-wa-green', inactive: 'text-wa-muted border-wa-border' },
+  { value: 'pending', label: 'Pending', active: 'bg-yellow-400 text-black border-yellow-400', inactive: 'text-wa-muted border-wa-border' },
+  { value: 'closed', label: 'Closed', active: 'bg-wa-muted text-wa-darker border-wa-muted', inactive: 'text-wa-muted border-wa-border' },
 ];
 
 function StatusIcon({ status }) {
@@ -227,22 +227,22 @@ export default function ChatView({
   }
 
   let lastDate = '';
-  const statusOpt = STATUS_OPTIONS.find(s => s.value === convStatus) || STATUS_OPTIONS[0];
 
   return (
     <div className="relative flex-1 flex flex-col bg-wa-chat h-full overflow-hidden">
       {/* Header */}
-      <div className="px-4 py-3 bg-wa-dark border-b border-wa-border flex items-center gap-3 z-10">
-        {onBack && (
-          <button onClick={onBack} className="md:hidden p-2 -ml-2 rounded-full hover:bg-wa-hover text-wa-muted">
-            <ArrowLeft size={20} />
-          </button>
-        )}
-        <div className="w-10 h-10 shrink-0 rounded-full bg-wa-input flex items-center justify-center text-wa-green font-medium text-[15px] tracking-wide border border-wa-border/50 shadow-sm">
-          {(() => { const i = getInitials(conversation.contact.name); return i ? i : <User size={20} className="text-wa-muted opacity-80" />; })()}
-        </div>
-        <div className="flex-1 min-w-0">
-          <h3 className="text-[15px] font-medium text-wa-text flex items-center gap-2">
+      <div className="bg-wa-dark border-b border-wa-border z-10 shrink-0">
+        {/* Top row: back | avatar | name | actions */}
+        <div className="px-3 pt-2.5 pb-1 flex items-center gap-2">
+          {onBack && (
+            <button onClick={onBack} className="md:hidden p-1.5 -ml-1 rounded-full hover:bg-wa-hover text-wa-muted shrink-0">
+              <ArrowLeft size={20} />
+            </button>
+          )}
+          <div className="w-9 h-9 shrink-0 rounded-full bg-wa-input flex items-center justify-center text-wa-green font-medium text-[14px] tracking-wide border border-wa-border/50 shadow-sm">
+            {(() => { const i = getInitials(conversation.contact.name); return i ? i : <User size={18} className="text-wa-muted opacity-80" />; })()}
+          </div>
+          <div className="flex-1 min-w-0">
             {isEditingName ? (
               <form onSubmit={(e) => {
                 e.preventDefault();
@@ -253,73 +253,68 @@ export default function ChatView({
                 } else setIsEditingName(false);
               }} className="flex items-center gap-1">
                 <input type="text" value={editNameValue} onChange={e => setEditNameValue(e.target.value)}
-                  className="bg-wa-input rounded px-2 py-0.5 outline-none focus:ring-1 focus:ring-wa-green/50 text-wa-text border border-wa-border w-full max-w-[150px]"
+                  className="bg-wa-input rounded px-2 py-0.5 outline-none focus:ring-1 focus:ring-wa-green/50 text-wa-text border border-wa-border text-sm w-full max-w-[160px]"
                   autoFocus onBlur={() => setTimeout(() => setIsEditingName(false), 200)} />
-                <button type="submit" className="text-wa-green hover:opacity-80 p-1"><Check size={16} /></button>
+                <button type="submit" className="text-wa-green hover:opacity-80 p-1"><Check size={14} /></button>
               </form>
             ) : (
-              <>
-                <span className="truncate">{conversation.contact.name || 'Unsaved Contact'}</span>
-                <button onClick={() => { setEditNameValue(conversation.contact.name || ''); setIsEditingName(true); }}
-                  className="text-wa-muted hover:text-wa-green transition-colors"><Edit2 size={12} /></button>
-              </>
+              <button onClick={() => { setEditNameValue(conversation.contact.name || ''); setIsEditingName(true); }}
+                className="flex items-center gap-1.5 text-left w-full group">
+                <span className="text-[15px] font-medium text-wa-text truncate">
+                  {conversation.contact.name || 'Unsaved Contact'}
+                </span>
+                <Edit2 size={11} className="text-wa-muted group-hover:text-wa-green transition-colors shrink-0" />
+              </button>
             )}
-          </h3>
-          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-            <span className="text-xs text-wa-muted">{conversation.contact.phone}</span>
-            {labels.map(lbl => (
-              <span key={lbl} className="flex items-center gap-0.5 text-[10px] bg-wa-green/15 text-wa-green border border-wa-green/20 px-1.5 py-0.5 rounded-full">
-                {lbl}
-                <button onClick={() => handleRemoveLabel(lbl)} className="hover:text-red-400 ml-0.5"><X size={8} /></button>
-              </span>
-            ))}
-            {addingLabel ? (
-              <input type="text" value={labelInput} onChange={e => setLabelInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleAddLabel(); if (e.key === 'Escape') { setAddingLabel(false); setLabelInput(''); } }}
-                onBlur={handleAddLabel}
-                className="text-[10px] bg-wa-input border border-wa-green/30 rounded-full px-2 py-0.5 outline-none text-wa-text w-20"
-                placeholder="Add label..." autoFocus />
-            ) : (
-              <button onClick={() => setAddingLabel(true)} className="text-[10px] text-wa-muted hover:text-wa-green transition-colors">
-                <Plus size={10} />
+          </div>
+          {/* Icon actions */}
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button onClick={() => setShowReminderModal(true)}
+              className={`p-1.5 rounded-full hover:bg-wa-hover transition-colors ${reminder ? 'text-yellow-400' : 'text-wa-muted'}`}>
+              {reminder ? <BellRing size={17} /> : <Bell size={17} />}
+            </button>
+            <button onClick={() => setNotesOpen(!notesOpen)}
+              className={`p-1.5 rounded-full hover:bg-wa-hover transition-colors ${notesOpen ? 'text-wa-green' : 'text-wa-muted'}`}>
+              <StickyNote size={17} />
+            </button>
+            {onDeleteChat && (
+              <button onClick={onDeleteChat} className="p-1.5 rounded-full hover:bg-wa-hover text-wa-muted hover:text-red-400 transition-all">
+                <Trash2 size={17} />
               </button>
             )}
           </div>
         </div>
 
-        {/* Status select */}
-        <select
-          value={convStatus}
-          onChange={e => handleStatusChange(e.target.value)}
-          className={`text-xs bg-wa-input border border-wa-border rounded-lg px-2 py-1 outline-none ${statusOpt.color} cursor-pointer shrink-0`}
-        >
-          {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-        </select>
-
-        {/* Reminder bell */}
-        <button
-          onClick={() => setShowReminderModal(true)}
-          className={`p-1.5 rounded-full hover:bg-wa-hover transition-colors shrink-0 ${reminder ? 'text-yellow-400' : 'text-wa-muted'}`}
-          title={reminder ? `Reminder: ${new Date(reminder.remind_at).toLocaleString()}` : 'Set reminder'}
-        >
-          {reminder ? <BellRing size={18} /> : <Bell size={18} />}
-        </button>
-
-        {/* Notes toggle */}
-        <button
-          onClick={() => setNotesOpen(!notesOpen)}
-          className={`p-1.5 rounded-full hover:bg-wa-hover transition-colors shrink-0 ${notesOpen ? 'text-wa-green' : 'text-wa-muted'}`}
-          title="Notes"
-        >
-          <StickyNote size={18} />
-          {notes.length > 0 && <span className="sr-only">{notes.length}</span>}
-        </button>
-
-        {onDeleteChat && (
-          <button onClick={onDeleteChat} className="p-2 rounded-full hover:bg-wa-hover text-wa-muted hover:text-red-400 transition-all shrink-0" title="Delete chat">
-            <Trash2 size={20} />
-          </button>
-        )}
+        {/* Sub-row: phone + status pills + labels */}
+        <div className="px-3 pb-2 flex items-center gap-1.5 flex-wrap">
+          <span className="text-[11px] text-wa-muted">{conversation.contact.phone}</span>
+          <span className="text-wa-border">·</span>
+          {/* Status pills */}
+          {STATUS_OPTIONS.map(s => (
+            <button key={s.value} onClick={() => handleStatusChange(s.value)}
+              className={`text-[10px] px-2 py-0.5 rounded-full border font-medium transition-colors ${convStatus === s.value ? s.active : s.inactive}`}>
+              {s.label}
+            </button>
+          ))}
+          {labels.length > 0 && <span className="text-wa-border">·</span>}
+          {labels.map(lbl => (
+            <span key={lbl} className="flex items-center gap-0.5 text-[10px] bg-wa-green/15 text-wa-green border border-wa-green/20 px-1.5 py-0.5 rounded-full">
+              {lbl}
+              <button onClick={() => handleRemoveLabel(lbl)} className="hover:text-red-400 ml-0.5"><X size={8} /></button>
+            </span>
+          ))}
+          {addingLabel ? (
+            <input type="text" value={labelInput} onChange={e => setLabelInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleAddLabel(); if (e.key === 'Escape') { setAddingLabel(false); setLabelInput(''); } }}
+              onBlur={handleAddLabel}
+              className="text-[10px] bg-wa-input border border-wa-green/30 rounded-full px-2 py-0.5 outline-none text-wa-text w-20"
+              placeholder="Add label..." autoFocus />
+          ) : (
+            <button onClick={() => setAddingLabel(true)} className="text-[10px] text-wa-muted hover:text-wa-green transition-colors p-0.5">
+              <Plus size={10} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Messages */}

@@ -35,12 +35,22 @@ export default function TemplatePicker({ onClose, onSend }) {
   
   // Known contacts for autocomplete
   const [knownContacts, setKnownContacts] = useState([]);
+  const [notionSuggestions, setNotionSuggestions] = useState([]);
   const [showPhoneSuggestions, setShowPhoneSuggestions] = useState(false);
   const [previewImageError, setPreviewImageError] = useState(false);
 
   useEffect(() => {
     api.getConversations().then(c => setKnownContacts(c)).catch(() => {});
   }, []);
+
+  // Search Notion when user types a name
+  useEffect(() => {
+    if (!phone || phone.length < 2) { setNotionSuggestions([]); return; }
+    const timeout = setTimeout(() => {
+      api.getNotionContacts('', phone).then(setNotionSuggestions).catch(() => {});
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [phone]);
 
   useEffect(() => {
     if (!csvData.trim() || !selected) {
@@ -307,25 +317,44 @@ export default function TemplatePicker({ onClose, onSend }) {
                     placeholder="Search name or type number..." 
                     className="w-full bg-wa-input text-wa-text text-sm rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-wa-green/30" 
                   />
-                  {showPhoneSuggestions && knownContacts.length > 0 && phone.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-wa-input border border-wa-border rounded-lg shadow-xl max-h-40 overflow-y-auto z-10 hidden-scrollbar">
-                      {knownContacts
-                        .filter(c => c.contact.phone.includes(phone) || (c.contact.name && c.contact.name.toLowerCase().includes(phone.toLowerCase())))
-                        .map(c => (
-                          <div 
-                            key={c.id} 
-                            className="px-3 py-2 cursor-pointer hover:bg-wa-hover text-sm text-wa-text border-b border-wa-border/50 last:border-0"
-                            onClick={() => {
-                               setPhone(c.contact.phone);
-                               setShowPhoneSuggestions(false);
-                            }}
-                          >
-                            <div className="font-medium">{c.contact.name || "Unsaved Contact"}</div>
-                            <div className="text-xs text-wa-muted">{c.contact.phone}</div>
-                          </div>
-                      ))}
-                    </div>
-                  )}
+                  {showPhoneSuggestions && phone.length > 0 && (() => {
+                    const convMatches = knownContacts.filter(c =>
+                      c.contact.phone.includes(phone) || (c.contact.name && c.contact.name.toLowerCase().includes(phone.toLowerCase()))
+                    );
+                    // Notion results not already in conversations
+                    const convPhones = new Set(knownContacts.map(c => c.contact.phone));
+                    const notionMatches = notionSuggestions.filter(n => !convPhones.has(n.phone));
+                    const total = convMatches.length + notionMatches.length;
+                    if (total === 0) return null;
+                    return (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-wa-dark border border-wa-border rounded-lg shadow-xl max-h-52 overflow-y-auto z-10">
+                        {convMatches.length > 0 && (
+                          <>
+                            <div className="px-3 py-1 text-[10px] text-wa-muted font-medium uppercase tracking-wide border-b border-wa-border/50 bg-wa-input/30">Recent chats</div>
+                            {convMatches.map(c => (
+                              <div key={c.id} className="px-3 py-2 cursor-pointer hover:bg-wa-hover text-sm text-wa-text border-b border-wa-border/30 last:border-0"
+                                onClick={() => { setPhone(c.contact.phone); setShowPhoneSuggestions(false); }}>
+                                <div className="font-medium">{c.contact.name || 'Unsaved Contact'}</div>
+                                <div className="text-xs text-wa-muted">{c.contact.phone}</div>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                        {notionMatches.length > 0 && (
+                          <>
+                            <div className="px-3 py-1 text-[10px] text-wa-muted font-medium uppercase tracking-wide border-b border-wa-border/50 bg-wa-input/30">Notion contacts</div>
+                            {notionMatches.map(n => (
+                              <div key={n.phone} className="px-3 py-2 cursor-pointer hover:bg-wa-hover text-sm text-wa-text border-b border-wa-border/30 last:border-0"
+                                onClick={() => { setPhone(n.phone); setShowPhoneSuggestions(false); }}>
+                                <div className="font-medium">{n.name || 'Unknown'}</div>
+                                <div className="text-xs text-wa-muted">{n.phone}</div>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
                 {selected?.header_format && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(selected.header_format) && (
                   <div>
