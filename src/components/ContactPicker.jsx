@@ -82,10 +82,10 @@ export default function ContactPicker({ onClose, onSelectSingle, onSelectMultipl
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-      <div className="bg-wa-dark border border-wa-border rounded-xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl">
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-wa-dark border border-wa-border rounded-xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="px-4 py-3 border-b border-wa-border flex items-center justify-between">
+        <div className="px-4 py-3 border-b border-wa-border flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <Users size={18} className="text-wa-green" />
             <h2 className="text-wa-text font-semibold">Notion Contacts</h2>
@@ -99,7 +99,7 @@ export default function ContactPicker({ onClose, onSelectSingle, onSelectMultipl
         </div>
 
         {/* Segment filter */}
-        <div className="px-3 py-2 border-b border-wa-border flex gap-1.5 overflow-x-auto scrollbar-none">
+        <div className="px-3 py-2 border-b border-wa-border flex gap-1.5 overflow-x-auto scrollbar-none shrink-0">
           {SEGMENTS.map(s => (
             <button
               key={s}
@@ -116,7 +116,7 @@ export default function ContactPicker({ onClose, onSelectSingle, onSelectMultipl
         </div>
 
         {/* Search */}
-        <div className="px-3 py-2 border-b border-wa-border">
+        <div className="px-3 py-2 border-b border-wa-border shrink-0">
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-wa-muted" />
             <input
@@ -131,7 +131,7 @@ export default function ContactPicker({ onClose, onSelectSingle, onSelectMultipl
 
         {/* Select all row */}
         {filtered.length > 0 && (
-          <div className="px-3 py-1.5 border-b border-wa-border flex items-center justify-between">
+          <div className="px-3 py-1.5 border-b border-wa-border flex items-center justify-between shrink-0">
             <button
               onClick={selectAll}
               className="text-xs text-wa-muted hover:text-wa-green transition-colors"

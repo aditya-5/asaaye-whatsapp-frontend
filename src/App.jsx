@@ -21,6 +21,7 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [messagesCache, setMessagesCache] = useState({});
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [templateInitialContact, setTemplateInitialContact] = useState(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [blastContacts, setBlastContacts] = useState(null);
@@ -110,12 +111,11 @@ export default function App() {
 
   // ContactPicker: open chat with a single Notion contact
   const handleSelectSingleContact = (contact) => {
-    // Find existing conversation or set phone for new template chat
     const existing = conversations.find(c => c.contact.phone === contact.phone);
     if (existing) {
       setActiveConversation(existing);
     } else {
-      // Open template picker pre-filled for this contact
+      setTemplateInitialContact(contact);
       setShowTemplatePicker(true);
     }
   };
@@ -167,7 +167,7 @@ export default function App() {
             conversations={conversations}
             activeId={activeConversation?.id}
             onSelect={conv => { setActiveConversation(conv); setShowAnalytics(false); }}
-            onNewChat={() => setShowTemplatePicker(true)}
+            onNewChat={() => { setTemplateInitialContact(null); setShowTemplatePicker(true); }}
           />
         </div>
 
@@ -212,7 +212,11 @@ export default function App() {
 
       {/* Modals */}
       {showTemplatePicker && (
-        <TemplatePicker onClose={() => setShowTemplatePicker(false)} onSend={handleSendTemplate} />
+        <TemplatePicker
+          onClose={() => { setShowTemplatePicker(false); setTemplateInitialContact(null); }}
+          onSend={handleSendTemplate}
+          initialContact={templateInitialContact}
+        />
       )}
       {showContactPicker && (
         <ContactPicker
