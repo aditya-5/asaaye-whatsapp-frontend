@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Send, Image, FileText, Video, Users, Plus, Trash2, ClipboardPaste, Table2, AlertCircle, ArrowLeft, Search, BookUser, CheckSquare } from 'lucide-react';
+import { X, Send, Image, FileText, Video, Users, Plus, Trash2, ClipboardPaste, Table2, AlertCircle, ArrowLeft, Search, BookUser, CheckSquare, ChevronDown } from 'lucide-react';
 import { api } from '../api';
 import toast from 'react-hot-toast';
 
@@ -91,6 +91,9 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
   const [notionActiveSegments, setNotionActiveSegments] = useState([]);
   const [notionSelected, setNotionSelected] = useState(new Set());
   const [notionNameParam, setNotionNameParam] = useState(-1); // -1 = don't map; 0..N = param index
+
+  // Mobile template preview collapsed state
+  const [mobilePreviewOpen, setMobilePreviewOpen] = useState(false);
 
   // Draft
   const [draftBanner, setDraftBanner] = useState(null); // raw saved draft or null
@@ -411,16 +414,16 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
       {/* ── Body ────────────────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
 
-        {/* Mobile: template select dropdown + preview */}
+        {/* Mobile: template select dropdown + collapsible preview */}
         <div className="md:hidden shrink-0 border-b border-wa-border">
-          <div className="px-3 pt-2 pb-2">
+          <div className="px-3 pt-2 pb-2 flex items-center gap-2">
             {loading ? (
-              <p className="text-wa-muted text-sm py-1">Loading templates…</p>
+              <p className="text-wa-muted text-sm py-1 flex-1">Loading templates…</p>
             ) : (
               <select
                 value={selected?.id || ''}
-                onChange={e => { const t = templates.find(t => t.id === e.target.value); if (t) { setSelected(t); setBulkRows([]); setBulkErrors([]); } }}
-                className="w-full bg-wa-input text-wa-text text-sm rounded-lg px-3 py-2.5 outline-none border border-wa-border focus:ring-1 focus:ring-wa-green/30"
+                onChange={e => { const t = templates.find(t => t.id === e.target.value); if (t) { setSelected(t); setBulkRows([]); setBulkErrors([]); setMobilePreviewOpen(false); } }}
+                className="flex-1 min-w-0 bg-wa-input text-wa-text text-sm rounded-lg px-3 py-2.5 outline-none border border-wa-border focus:ring-1 focus:ring-wa-green/30"
               >
                 <option value="">Select a template…</option>
                 {templates.map(t => (
@@ -428,8 +431,16 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
                 ))}
               </select>
             )}
+            {selected && (
+              <button
+                onClick={() => setMobilePreviewOpen(p => !p)}
+                className="shrink-0 p-2 rounded-lg bg-wa-input border border-wa-border text-wa-muted hover:text-wa-text transition-colors"
+              >
+                <ChevronDown size={16} className={`transition-transform duration-200 ${mobilePreviewOpen ? 'rotate-180' : ''}`} />
+              </button>
+            )}
           </div>
-          {selected && (
+          {selected && mobilePreviewOpen && (
             <div className="mx-3 mb-2 px-3 py-2 bg-wa-incoming/40 border border-wa-border/50 rounded-lg">
               {selected.header_format && (
                 <div className="flex items-center gap-1 mb-1">
