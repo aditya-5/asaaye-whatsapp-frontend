@@ -412,10 +412,28 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
       )}
 
       {/* ── Body ────────────────────────────────────────────────────────────── */}
-      <div className="flex-1 flex overflow-hidden min-h-0">
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
 
-        {/* Left: Template list */}
-        <div className="w-64 shrink-0 border-r border-wa-border flex flex-col overflow-hidden">
+        {/* Mobile: template select dropdown */}
+        <div className="md:hidden shrink-0 px-3 py-2 border-b border-wa-border">
+          {loading ? (
+            <p className="text-wa-muted text-sm py-1">Loading templates…</p>
+          ) : (
+            <select
+              value={selected?.id || ''}
+              onChange={e => { const t = templates.find(t => t.id === e.target.value); if (t) { setSelected(t); setBulkRows([]); setBulkErrors([]); } }}
+              className="w-full bg-wa-input text-wa-text text-sm rounded-lg px-3 py-2.5 outline-none border border-wa-border focus:ring-1 focus:ring-wa-green/30"
+            >
+              <option value="">Select a template…</option>
+              {templates.map(t => (
+                <option key={t.id} value={t.id}>{t.name}{t.status !== 'APPROVED' ? ` (${t.status})` : ''}</option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        {/* Left: Template list — desktop only */}
+        <div className="hidden md:flex w-64 shrink-0 border-r border-wa-border flex-col overflow-hidden">
           <div className="px-3 py-2.5 border-b border-wa-border shrink-0">
             <p className="text-xs font-semibold text-wa-muted uppercase tracking-wider">1 · Select Template</p>
           </div>
@@ -447,29 +465,30 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
           {/* Recipients header */}
-          <div className="px-4 py-2.5 border-b border-wa-border shrink-0 flex items-center gap-2">
-            <p className="text-xs font-semibold text-wa-muted uppercase tracking-wider flex-1">2 · Add Recipients</p>
+          <div className="px-3 py-2 border-b border-wa-border shrink-0 flex items-center gap-2">
+            <p className="hidden md:block text-xs font-semibold text-wa-muted uppercase tracking-wider flex-1">2 · Add Recipients</p>
+            <div className="flex-1 md:hidden" />
 
             {/* Notion button */}
             <button
               onClick={showNotionDrawer ? () => setShowNotionDrawer(false) : openNotionDrawer}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all border ${showNotionDrawer ? 'bg-wa-green/10 border-wa-green/30 text-wa-green' : 'border-wa-border text-wa-muted hover:text-wa-text hover:border-wa-muted/50'}`}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border ${showNotionDrawer ? 'bg-wa-green/10 border-wa-green/30 text-wa-green' : 'border-wa-border text-wa-muted hover:text-wa-text hover:border-wa-muted/50'}`}
             >
-              <BookUser size={12} /> From Notion
+              <BookUser size={13} /> <span className="hidden sm:inline">From Notion</span>
             </button>
 
             {/* Mode toggle — hidden when drawer open */}
             {!showNotionDrawer && (
               <div className="flex bg-wa-input rounded-lg p-0.5 gap-0.5">
                 <button onClick={() => inputMode === 'csv' ? switchToTable() : null}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all ${inputMode === 'table' ? 'bg-wa-dark text-wa-text shadow' : 'text-wa-muted hover:text-wa-text'}`}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${inputMode === 'table' ? 'bg-wa-dark text-wa-text shadow' : 'text-wa-muted hover:text-wa-text'}`}
                 >
-                  <Table2 size={12} /> Fill Table
+                  <Table2 size={13} /> <span className="hidden sm:inline">Table</span>
                 </button>
                 <button onClick={() => inputMode === 'table' ? switchToCsv() : null}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all ${inputMode === 'csv' ? 'bg-wa-dark text-wa-text shadow' : 'text-wa-muted hover:text-wa-text'}`}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${inputMode === 'csv' ? 'bg-wa-dark text-wa-text shadow' : 'text-wa-muted hover:text-wa-text'}`}
                 >
-                  <ClipboardPaste size={12} /> Paste CSV
+                  <ClipboardPaste size={13} /> <span className="hidden sm:inline">CSV</span>
                 </button>
               </div>
             )}
@@ -616,50 +635,55 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
                     </div>
                   )}
 
-                  {/* Column headers */}
-                  <div className="shrink-0 flex items-center gap-2 px-4 py-2 border-b border-wa-border bg-wa-input/30">
-                    {colHeaders.map((h, i) => (
-                      <div key={i} className={`text-[11px] font-semibold text-wa-muted uppercase tracking-wide ${i === 0 ? 'w-40 shrink-0' : hasMedia && i === colHeaders.length - 1 ? 'flex-1 min-w-0' : 'w-28 shrink-0'}`}>
-                        {h}
+                  {/* Scrollable table: horizontal on mobile, vertical always */}
+                  <div className="flex-1 overflow-auto">
+                    <div className="min-w-max px-4">
+                      {/* Column headers */}
+                      <div className="flex items-center gap-2 py-2 border-b border-wa-border bg-wa-input/30 sticky top-0">
+                        {colHeaders.map((h, i) => (
+                          <div key={i} className={`text-[11px] font-semibold text-wa-muted uppercase tracking-wide ${i === 0 ? 'w-36 shrink-0' : hasMedia && i === colHeaders.length - 1 ? 'w-40 shrink-0' : 'w-28 shrink-0'}`}>
+                            {h}
+                          </div>
+                        ))}
+                        <div className="w-7 shrink-0" />
                       </div>
-                    ))}
-                    <div className="w-7 shrink-0" />
-                  </div>
 
-                  {/* Rows */}
-                  <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1.5">
-                    {rows.map((row, ri) => {
-                      const errs = rowErrors[ri] || [];
-                      const fieldErr = f => errs.find(e => e.field === f);
-                      return (
-                        <div key={ri} className="flex items-center gap-2">
-                          <input type="text" value={row.phone} onChange={e => updateCell(ri, 'phone', e.target.value)}
-                            placeholder="447700900000"
-                            className={`w-40 shrink-0 bg-wa-input text-wa-text text-xs rounded-lg px-2.5 py-2 outline-none font-mono placeholder:text-wa-muted/40 ${fieldErr('phone') && row.phone ? 'ring-1 ring-red-400/60' : 'focus:ring-1 focus:ring-wa-green/30'}`}
-                          />
-                          {Array.from({ length: numParams }, (_, pi) => (
-                            <input key={pi} type="text" value={row.params[pi] || ''} onChange={e => updateCell(ri, `param_${pi}`, e.target.value)}
-                              placeholder={`{{${pi + 1}}}`}
-                              className={`w-28 shrink-0 bg-wa-input text-wa-text text-xs rounded-lg px-2.5 py-2 outline-none placeholder:text-wa-muted/40 ${fieldErr(`param_${pi}`) && row.params[pi] !== undefined ? 'ring-1 ring-red-400/60' : 'focus:ring-1 focus:ring-wa-green/30'}`}
-                            />
-                          ))}
-                          {hasMedia && (
-                            <input type="url" value={row.mediaUrl} onChange={e => updateCell(ri, 'mediaUrl', e.target.value)}
-                              placeholder="https://…"
-                              className={`flex-1 min-w-0 bg-wa-input text-wa-text text-xs rounded-lg px-2.5 py-2 outline-none placeholder:text-wa-muted/40 ${fieldErr('mediaUrl') && row.mediaUrl ? 'ring-1 ring-red-400/60' : 'focus:ring-1 focus:ring-wa-green/30'}`}
-                            />
-                          )}
-                          <button onClick={() => removeRow(ri)}
-                            className="w-7 shrink-0 flex items-center justify-center text-wa-muted/50 hover:text-red-400 transition-colors"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      );
-                    })}
-                    <button onClick={addRow} className="flex items-center gap-1.5 text-xs text-wa-muted hover:text-wa-green transition-colors py-1 mt-1">
-                      <Plus size={13} /> Add Row
-                    </button>
+                      {/* Rows */}
+                      <div className="py-2 space-y-1.5">
+                        {rows.map((row, ri) => {
+                          const errs = rowErrors[ri] || [];
+                          const fieldErr = f => errs.find(e => e.field === f);
+                          return (
+                            <div key={ri} className="flex items-center gap-2">
+                              <input type="text" value={row.phone} onChange={e => updateCell(ri, 'phone', e.target.value)}
+                                placeholder="447700900000"
+                                className={`w-36 shrink-0 bg-wa-input text-wa-text text-xs rounded-lg px-2.5 py-2 outline-none font-mono placeholder:text-wa-muted/40 ${fieldErr('phone') && row.phone ? 'ring-1 ring-red-400/60' : 'focus:ring-1 focus:ring-wa-green/30'}`}
+                              />
+                              {Array.from({ length: numParams }, (_, pi) => (
+                                <input key={pi} type="text" value={row.params[pi] || ''} onChange={e => updateCell(ri, `param_${pi}`, e.target.value)}
+                                  placeholder={`{{${pi + 1}}}`}
+                                  className={`w-28 shrink-0 bg-wa-input text-wa-text text-xs rounded-lg px-2.5 py-2 outline-none placeholder:text-wa-muted/40 ${fieldErr(`param_${pi}`) && row.params[pi] !== undefined ? 'ring-1 ring-red-400/60' : 'focus:ring-1 focus:ring-wa-green/30'}`}
+                                />
+                              ))}
+                              {hasMedia && (
+                                <input type="url" value={row.mediaUrl} onChange={e => updateCell(ri, 'mediaUrl', e.target.value)}
+                                  placeholder="https://…"
+                                  className={`w-40 shrink-0 bg-wa-input text-wa-text text-xs rounded-lg px-2.5 py-2 outline-none placeholder:text-wa-muted/40 ${fieldErr('mediaUrl') && row.mediaUrl ? 'ring-1 ring-red-400/60' : 'focus:ring-1 focus:ring-wa-green/30'}`}
+                                />
+                              )}
+                              <button onClick={() => removeRow(ri)}
+                                className="w-7 shrink-0 flex items-center justify-center text-wa-muted/50 hover:text-red-400 transition-colors"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                        <button onClick={addRow} className="flex items-center gap-1.5 text-xs text-wa-muted hover:text-wa-green transition-colors py-1 mt-1">
+                          <Plus size={13} /> Add Row
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
                   {tableHasAnyError && tableHasAnyRow && (
