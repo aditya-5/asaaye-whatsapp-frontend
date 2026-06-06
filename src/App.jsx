@@ -105,7 +105,7 @@ export default function App() {
 
   const handleSendTemplate = async (data) => {
     toast.promise(api.sendTemplate(data).then(() => loadConversations()), {
-      loading: 'Sending template...', success: 'Template sent!', error: 'Failed to send template',
+      loading: 'Sending template...', success: 'Template sent!', error: e => e.message || 'Failed to send template',
     });
   };
 

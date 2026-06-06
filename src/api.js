@@ -8,8 +8,10 @@ async function request(path, options = {}) {
     ...options,
   });
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(err);
+    const text = await res.text();
+    let msg = text;
+    try { msg = JSON.parse(text)?.detail || text; } catch {}
+    throw new Error(msg);
   }
   return res.json();
 }
