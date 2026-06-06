@@ -92,9 +92,6 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
   const [notionSelected, setNotionSelected] = useState(new Set());
   const [notionNameParam, setNotionNameParam] = useState(-1); // -1 = don't map; 0..N = param index
 
-  // Global media URL (shared across all rows)
-  const [globalMediaUrl, setGlobalMediaUrl] = useState('');
-
   // Draft
   const [draftBanner, setDraftBanner] = useState(null); // raw saved draft or null
 
@@ -266,7 +263,7 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
       .map(c => {
         const params = Array(numParams).fill('');
         if (notionNameParam >= 0 && notionNameParam < numParams) params[notionNameParam] = c.name || '';
-        return { phone: c.phone.replace(/\D/g, ''), params, mediaUrl: globalMediaUrl };
+        return { phone: c.phone.replace(/\D/g, ''), params, mediaUrl: '' };
       });
 
     setRows(prev => {
@@ -281,13 +278,13 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
 
   // ── Table helpers ────────────────────────────────────────────────────────────
 
-  const applyGlobalMedia = () => {
-    if (!globalMediaUrl.trim()) return;
-    setRows(prev => prev.map(r => ({ ...r, mediaUrl: globalMediaUrl })));
-    toast.success('Applied to all rows');
+  const applyFirstRowMedia = () => {
+    const firstUrl = rows[0]?.mediaUrl?.trim();
+    if (!firstUrl) return;
+    setRows(prev => prev.map((r, i) => i === 0 ? r : { ...r, mediaUrl: firstUrl }));
   };
 
-  const addRow = () => setRows(prev => [...prev, { ...makeEmptyRow(numParams), mediaUrl: globalMediaUrl }]);
+  const addRow = () => setRows(prev => [...prev, makeEmptyRow(numParams)]);
   const removeRow = (i) => setRows(prev => prev.length === 1 ? [makeEmptyRow(numParams)] : prev.filter((_, idx) => idx !== i));
   const updateCell = (ri, field, value) => {
     setRows(prev => prev.map((r, i) => {
@@ -414,21 +411,39 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
       {/* ── Body ────────────────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
 
-        {/* Mobile: template select dropdown */}
-        <div className="md:hidden shrink-0 px-3 py-2 border-b border-wa-border">
-          {loading ? (
-            <p className="text-wa-muted text-sm py-1">Loading templates…</p>
-          ) : (
-            <select
-              value={selected?.id || ''}
-              onChange={e => { const t = templates.find(t => t.id === e.target.value); if (t) { setSelected(t); setBulkRows([]); setBulkErrors([]); } }}
-              className="w-full bg-wa-input text-wa-text text-sm rounded-lg px-3 py-2.5 outline-none border border-wa-border focus:ring-1 focus:ring-wa-green/30"
-            >
-              <option value="">Select a template…</option>
-              {templates.map(t => (
-                <option key={t.id} value={t.id}>{t.name}{t.status !== 'APPROVED' ? ` (${t.status})` : ''}</option>
-              ))}
-            </select>
+        {/* Mobile: template select dropdown + preview */}
+        <div className="md:hidden shrink-0 border-b border-wa-border">
+          <div className="px-3 pt-2 pb-2">
+            {loading ? (
+              <p className="text-wa-muted text-sm py-1">Loading templates…</p>
+            ) : (
+              <select
+                value={selected?.id || ''}
+                onChange={e => { const t = templates.find(t => t.id === e.target.value); if (t) { setSelected(t); setBulkRows([]); setBulkErrors([]); } }}
+                className="w-full bg-wa-input text-wa-text text-sm rounded-lg px-3 py-2.5 outline-none border border-wa-border focus:ring-1 focus:ring-wa-green/30"
+              >
+                <option value="">Select a template…</option>
+                {templates.map(t => (
+                  <option key={t.id} value={t.id}>{t.name}{t.status !== 'APPROVED' ? ` (${t.status})` : ''}</option>
+                ))}
+              </select>
+            )}
+          </div>
+          {selected && (
+            <div className="mx-3 mb-2 px-3 py-2 bg-wa-incoming/40 border border-wa-border/50 rounded-lg">
+              {selected.header_format && (
+                <div className="flex items-center gap-1 mb-1">
+                  <HeaderIcon format={selected.header_format} />
+                  <span className="text-[11px] text-wa-green">{selected.header_format} header</span>
+                </div>
+              )}
+              <p className="text-[12px] text-wa-text leading-relaxed whitespace-pre-wrap">
+                {getBodyText(selected) || <span className="text-wa-muted italic">No body text</span>}
+              </p>
+              {numParams > 0 && (
+                <p className="text-[11px] text-wa-muted mt-1">{numParams} parameter{numParams !== 1 ? 's' : ''} required</p>
+              )}
+            </div>
           )}
         </div>
 
@@ -611,40 +626,28 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
                 </div>
               ) : (
                 <>
-                  {/* Global media URL row */}
-                  {hasMedia && (
-                    <div className="shrink-0 flex items-center gap-2 px-4 py-2 border-b border-wa-border bg-wa-input/20">
-                      <HeaderIcon format={selected.header_format} />
-                      <span className="text-[11px] text-wa-muted whitespace-nowrap">
-                        {selected.header_format} for all rows:
-                      </span>
-                      <input
-                        type="url"
-                        value={globalMediaUrl}
-                        onChange={e => setGlobalMediaUrl(e.target.value)}
-                        placeholder="https://… (shared URL)"
-                        className="flex-1 min-w-0 bg-wa-input text-wa-text text-xs rounded-lg px-2.5 py-1.5 outline-none placeholder:text-wa-muted/40 focus:ring-1 focus:ring-wa-green/30"
-                      />
-                      <button
-                        onClick={applyGlobalMedia}
-                        disabled={!globalMediaUrl.trim()}
-                        className="text-xs text-wa-green hover:underline disabled:opacity-40 disabled:no-underline whitespace-nowrap"
-                      >
-                        Apply to all ↓
-                      </button>
-                    </div>
-                  )}
-
                   {/* Scrollable table: horizontal on mobile, vertical always */}
                   <div className="flex-1 overflow-auto">
                     <div className="min-w-max px-4">
                       {/* Column headers */}
                       <div className="flex items-center gap-2 py-2 border-b border-wa-border bg-wa-input/30 sticky top-0">
-                        {colHeaders.map((h, i) => (
-                          <div key={i} className={`text-[11px] font-semibold text-wa-muted uppercase tracking-wide ${i === 0 ? 'w-36 shrink-0' : hasMedia && i === colHeaders.length - 1 ? 'w-40 shrink-0' : 'w-28 shrink-0'}`}>
-                            {h}
-                          </div>
-                        ))}
+                        {colHeaders.map((h, i) => {
+                          const isMediaCol = hasMedia && i === colHeaders.length - 1;
+                          return (
+                            <div key={i} className={`text-[11px] font-semibold text-wa-muted uppercase tracking-wide shrink-0 flex items-center gap-1 ${i === 0 ? 'w-36' : isMediaCol ? 'w-40' : 'w-28'}`}>
+                              {h}
+                              {isMediaCol && (
+                                <button
+                                  onClick={applyFirstRowMedia}
+                                  disabled={!rows[0]?.mediaUrl?.trim()}
+                                  className="text-[9px] font-bold text-wa-green border border-wa-green/40 px-1 py-0.5 rounded hover:bg-wa-green/10 disabled:opacity-30 disabled:cursor-not-allowed leading-none"
+                                >
+                                  COMMON
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
                         <div className="w-7 shrink-0" />
                       </div>
 
