@@ -90,7 +90,6 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
   const [notionSearch, setNotionSearch] = useState('');
   const [notionActiveSegments, setNotionActiveSegments] = useState([]);
   const [notionSelected, setNotionSelected] = useState(new Set());
-  const [notionCountryCode, setNotionCountryCode] = useState('91');
   const [notionNameParam, setNotionNameParam] = useState(-1); // -1 = don't map; 0..N = param index
 
   // Global media URL (shared across all rows)
@@ -262,15 +261,12 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
   };
 
   const addNotionContacts = () => {
-    const cc = notionCountryCode.replace(/\D/g, '');
     const toAdd = notionContacts
       .filter(c => notionSelected.has(c.phone) && !existingPhones.has(c.phone.replace(/\D/g, '')))
       .map(c => {
-        const rawPhone = c.phone.replace(/\D/g, '');
-        const phone = cc && !rawPhone.startsWith(cc) ? cc + rawPhone : rawPhone;
         const params = Array(numParams).fill('');
         if (notionNameParam >= 0 && notionNameParam < numParams) params[notionNameParam] = c.name || '';
-        return { phone, params, mediaUrl: globalMediaUrl };
+        return { phone: c.phone.replace(/\D/g, ''), params, mediaUrl: globalMediaUrl };
       });
 
     setRows(prev => {
@@ -506,37 +502,22 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
                 </div>
               </div>
 
-              {/* Country code + name mapping config */}
-              <div className="shrink-0 px-3 py-2 border-b border-wa-border flex items-center gap-3 bg-wa-input/20">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-wa-muted whitespace-nowrap">Country code</span>
-                  <div className="flex items-center bg-wa-input border border-wa-border rounded-lg overflow-hidden">
-                    <span className="text-xs text-wa-muted px-2">+</span>
-                    <input
-                      type="text"
-                      value={notionCountryCode}
-                      onChange={e => setNotionCountryCode(e.target.value.replace(/\D/g, ''))}
-                      placeholder="91"
-                      className="w-10 bg-transparent text-wa-text text-xs py-1 pr-2 outline-none"
-                    />
-                  </div>
+              {/* Name mapping config */}
+              {numParams > 0 && (
+                <div className="shrink-0 px-3 py-2 border-b border-wa-border flex items-center gap-2 bg-wa-input/20">
+                  <span className="text-[11px] text-wa-muted whitespace-nowrap">Map name →</span>
+                  <select
+                    value={notionNameParam}
+                    onChange={e => setNotionNameParam(parseInt(e.target.value))}
+                    className="flex-1 min-w-0 bg-wa-input text-wa-text text-xs rounded-lg px-2 py-1 outline-none border border-wa-border focus:ring-1 focus:ring-wa-green/30"
+                  >
+                    <option value={-1}>Don't map</option>
+                    {Array.from({ length: numParams }, (_, i) => (
+                      <option key={i} value={i}>Param {i + 1}</option>
+                    ))}
+                  </select>
                 </div>
-                {numParams > 0 && (
-                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                    <span className="text-[11px] text-wa-muted whitespace-nowrap">Name →</span>
-                    <select
-                      value={notionNameParam}
-                      onChange={e => setNotionNameParam(parseInt(e.target.value))}
-                      className="flex-1 min-w-0 bg-wa-input text-wa-text text-xs rounded-lg px-2 py-1 outline-none border border-wa-border focus:ring-1 focus:ring-wa-green/30"
-                    >
-                      <option value={-1}>Don't map</option>
-                      {Array.from({ length: numParams }, (_, i) => (
-                        <option key={i} value={i}>Param {i + 1}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
+              )}
 
               {/* Select all row */}
               {filteredNotion.length > 0 && (
