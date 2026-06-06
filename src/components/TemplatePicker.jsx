@@ -387,7 +387,7 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="fixed inset-0 bg-wa-dark z-50 flex flex-col">
+    <div className="fixed inset-0 bg-wa-dark z-50 flex flex-col" style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
 
       {/* ── Top bar ─────────────────────────────────────────────────────────── */}
       <div className="shrink-0 flex items-center gap-3 px-4 py-3 border-b border-wa-border">
