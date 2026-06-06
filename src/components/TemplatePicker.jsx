@@ -1,107 +1,136 @@
-import { useState, useEffect } from 'react';
-import { X, Send, Image, FileText, Video, Users, Plus, Trash2, ClipboardPaste, Table2, CheckCircle, AlertCircle, ArrowLeft } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { X, Send, Image, FileText, Video, Users, Plus, Trash2, ClipboardPaste, Table2, AlertCircle, ArrowLeft, Search, BookUser, CheckSquare } from 'lucide-react';
 import { api } from '../api';
 import toast from 'react-hot-toast';
 
+// ── Constants ──────────────────────────────────────────────────────────────────
+
+const NOTION_SEGMENTS = [
+  'Customer', 'Female', 'Male',
+  'Exhibition-Kanpur', 'Exhibition-Mumbai', 'Exhibition-Jaipur', 'Exhibition-Lucknow',
+  'Family/Friends',
+];
+
+const STATUS_COLORS = {
+  'New': 'bg-gray-500', 'Replied': 'bg-blue-500', 'In Consultation': 'bg-yellow-500',
+  'Converted': 'bg-green-500', 'Cold': 'bg-orange-700', 'Opted Out': 'bg-red-600',
+};
+
+const DRAFT_KEY = 'asaaye_bulk_draft';
+
+// ── Pure helpers ───────────────────────────────────────────────────────────────
+
 const formatWhatsAppText = (text) => {
   if (!text) return { __html: '' };
-  let formatted = text
+  let f = text
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
-  formatted = formatted.replace(/\*([\s\S]*?)\*/g, '<strong>$1</strong>');
-  formatted = formatted.replace(/_([\s\S]*?)_/g, '<em>$1</em>');
-  formatted = formatted.replace(/~([\s\S]*?)~/g, '<del>$1</del>');
-  formatted = formatted.replace(/\n/g, '<br/>');
-  return { __html: formatted };
+  f = f.replace(/\*([\s\S]*?)\*/g, '<strong>$1</strong>');
+  f = f.replace(/_([\s\S]*?)_/g, '<em>$1</em>');
+  f = f.replace(/~([\s\S]*?)~/g, '<del>$1</del>');
+  f = f.replace(/\n/g, '<br/>');
+  return { __html: f };
 };
 
-const HeaderIcon = ({ format }) => {
-  switch (format) {
-    case 'IMAGE': return <Image size={13} className="text-wa-green" />;
-    case 'VIDEO': return <Video size={13} className="text-wa-green" />;
-    case 'DOCUMENT': return <FileText size={13} className="text-wa-green" />;
-    default: return null;
-  }
-};
+const getBodyText = (t) => t?.components?.find(c => c.type === 'BODY')?.text || '';
 
-const getBodyText = (template) => {
-  const body = template?.components?.find(c => c.type === 'BODY');
-  return body?.text || '';
-};
+const makeEmptyRow = (numParams = 0) => ({ phone: '', params: Array(numParams).fill(''), mediaUrl: '' });
 
-const makeEmptyRow = () => ({ phone: '', params: [], mediaUrl: '' });
-
-// Validate a single table row — returns array of field-level errors { field, msg }
 function validateRow(row, numParams, hasMedia) {
   const errors = [];
   const phone = row.phone.replace(/\D/g, '');
   if (!phone || phone.length < 10) errors.push({ field: 'phone', msg: 'Invalid phone' });
   for (let i = 0; i < numParams; i++) {
-    if (!row.params[i] || !row.params[i].trim()) errors.push({ field: `param_${i}`, msg: `Param ${i + 1} required` });
+    if (!row.params[i]?.trim()) errors.push({ field: `param_${i}`, msg: `Param ${i + 1} required` });
   }
-  if (hasMedia && (!row.mediaUrl || !row.mediaUrl.trim() || !row.mediaUrl.startsWith('http'))) {
+  if (hasMedia && (!row.mediaUrl?.trim() || !row.mediaUrl.startsWith('http')))
     errors.push({ field: 'mediaUrl', msg: 'Valid URL required' });
-  }
   return errors;
 }
 
-// Parse CSV text into table rows
 function csvToRows(csv, numParams) {
   return csv.trim().split(/\r?\n/).map(line => {
     const cols = line.split(',').map(c => c.trim());
-    return {
-      phone: cols[0] || '',
-      params: cols.slice(1, 1 + numParams),
-      mediaUrl: cols[1 + numParams] || '',
-    };
+    return { phone: cols[0] || '', params: cols.slice(1, 1 + numParams), mediaUrl: cols[1 + numParams] || '' };
   }).filter(r => r.phone);
 }
 
-// Serialize table rows back to CSV string
 function rowsToCsv(rows) {
-  return rows.map(r => [r.phone, ...r.params, r.mediaUrl].join(', ')).join('\n');
+  return rows.filter(r => r.phone).map(r => [r.phone, ...r.params, r.mediaUrl].filter((_, i, a) => i < a.length - 1 || a[a.length - 1]).join(', ')).join('\n');
 }
 
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
+const HeaderIcon = ({ format }) => {
+  if (format === 'IMAGE') return <Image size={13} className="text-wa-green" />;
+  if (format === 'VIDEO') return <Video size={13} className="text-wa-green" />;
+  if (format === 'DOCUMENT') return <FileText size={13} className="text-wa-green" />;
+  return null;
+};
+
+// ── Main component ─────────────────────────────────────────────────────────────
+
 export default function TemplatePicker({ onClose, onSend, initialContact = null }) {
+  // Templates
   const [templates, setTemplates] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
-  const [inputMode, setInputMode] = useState('table'); // 'table' | 'csv'
 
-  // CSV mode state
+  // Recipients
+  const [inputMode, setInputMode] = useState('table');
+  const [rows, setRows] = useState([makeEmptyRow()]);
+  const [rowErrors, setRowErrors] = useState([]);
   const [csvData, setCsvData] = useState('');
   const [liveErrors, setLiveErrors] = useState([]);
 
-  // Table mode state
-  const [rows, setRows] = useState([makeEmptyRow()]);
-  const [rowErrors, setRowErrors] = useState([]); // array of error arrays, one per row
+  // Notion drawer
+  const [showNotionDrawer, setShowNotionDrawer] = useState(false);
+  const [notionContacts, setNotionContacts] = useState([]);
+  const [notionLoading, setNotionLoading] = useState(false);
+  const [notionSearch, setNotionSearch] = useState('');
+  const [notionActiveSegments, setNotionActiveSegments] = useState([]);
+  const [notionSelected, setNotionSelected] = useState(new Set());
 
-  // Preview state
+  // Draft
+  const [draftBanner, setDraftBanner] = useState(null); // raw saved draft or null
+
+  // Discard guard
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+
+  // Preview
   const [showPreview, setShowPreview] = useState(false);
   const [bulkRows, setBulkRows] = useState([]);
   const [bulkErrors, setBulkErrors] = useState([]);
   const [previewImageError, setPreviewImageError] = useState(false);
+  const [sending, setSending] = useState(false);
 
   const numParams = selected?.param_count || 0;
-  const hasMedia = selected && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(selected.header_format);
+  const hasMedia = !!selected && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(selected.header_format);
 
+  // ── Lifecycle ────────────────────────────────────────────────────────────────
+
+  // Load templates + check for saved draft
   useEffect(() => {
-    api.getTemplates().then(data => { setTemplates(data); setLoading(false); }).catch(() => setLoading(false));
+    api.getTemplates().then(data => {
+      setTemplates(data);
+      setLoading(false);
+      // Check for saved draft after templates are available
+      try {
+        const raw = localStorage.getItem(DRAFT_KEY);
+        if (raw) setDraftBanner(JSON.parse(raw));
+      } catch {}
+    }).catch(() => setLoading(false));
   }, []);
 
-  // Pre-populate table if a contact was passed in (from ContactPicker single-select)
+  // Pre-populate from initialContact
   useEffect(() => {
-    if (initialContact) {
-      setRows([{ phone: initialContact.phone, params: [], mediaUrl: '' }]);
-    }
+    if (initialContact) setRows([{ phone: initialContact.phone, params: [], mediaUrl: '' }]);
   }, [initialContact]);
 
-  // Sync params array length when template changes
+  // Sync param count when template changes
   useEffect(() => {
     setRows(prev => prev.map(r => ({
-      ...r,
-      params: Array.from({ length: numParams }, (_, i) => r.params[i] || ''),
+      ...r, params: Array.from({ length: numParams }, (_, i) => r.params[i] || ''),
     })));
   }, [numParams]);
 
@@ -114,43 +143,146 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
   useEffect(() => {
     if (!csvData.trim() || !selected) { setLiveErrors([]); return; }
     const errors = [];
-    const lines = csvData.trim().split(/\r?\n/);
-    lines.forEach((line, i) => {
+    csvData.trim().split(/\r?\n/).forEach((line, i) => {
       const cols = line.split(',').map(c => c.trim());
       const phone = (cols[0] || '').replace(/\D/g, '');
       if (!phone || phone.length < 10) errors.push(`Row ${i + 1}: Invalid phone "${cols[0]}"`);
-      for (let p = 0; p < numParams; p++) {
-        if (!cols[1 + p] || !cols[1 + p].trim()) errors.push(`Row ${i + 1}: Param ${p + 1} required`);
-      }
-      if (hasMedia) {
-        const url = cols[1 + numParams] || '';
-        if (!url.trim() || !url.startsWith('http')) errors.push(`Row ${i + 1}: Invalid media URL`);
-      }
+      for (let p = 0; p < numParams; p++)
+        if (!cols[1 + p]?.trim()) errors.push(`Row ${i + 1}: Param ${p + 1} required`);
+      if (hasMedia && (!cols[1 + numParams]?.trim() || !cols[1 + numParams].startsWith('http')))
+        errors.push(`Row ${i + 1}: Invalid media URL`);
     });
     setLiveErrors(errors);
   }, [csvData, selected, numParams, hasMedia]);
 
-  const handleSelectTemplate = (t) => {
-    setSelected(t);
-    setBulkRows([]);
-    setBulkErrors([]);
+  // Autosave draft (debounced 600ms)
+  useEffect(() => {
+    const hasData = rows.some(r => r.phone.trim()) || csvData.trim();
+    if (!selected && !hasData) return;
+    const t = setTimeout(() => {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+        templateId: selected?.id, inputMode, rows, csvData,
+      }));
+    }, 600);
+    return () => clearTimeout(t);
+  }, [selected, inputMode, rows, csvData]);
+
+  // beforeunload guard
+  const hasData = rows.some(r => r.phone.trim()) || csvData.trim();
+  useEffect(() => {
+    if (!hasData) return;
+    const handler = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [hasData]);
+
+  // ── Draft restore ────────────────────────────────────────────────────────────
+
+  const restoreDraft = () => {
+    if (!draftBanner) return;
+    if (draftBanner.templateId) {
+      const t = templates.find(t => t.id === draftBanner.templateId);
+      if (t) setSelected(t);
+    }
+    if (draftBanner.inputMode) setInputMode(draftBanner.inputMode);
+    if (draftBanner.rows?.length) setRows(draftBanner.rows);
+    if (draftBanner.csvData) setCsvData(draftBanner.csvData);
+    setDraftBanner(null);
   };
 
-  // ── Table helpers ──────────────────────────────────────────────────────────
+  const discardDraft = () => {
+    localStorage.removeItem(DRAFT_KEY);
+    setDraftBanner(null);
+  };
 
-  const addRow = () => setRows(prev => [...prev, { phone: '', params: Array(numParams).fill(''), mediaUrl: '' }]);
+  // ── Notion drawer ────────────────────────────────────────────────────────────
 
-  const removeRow = (i) => setRows(prev => prev.filter((_, idx) => idx !== i));
+  const openNotionDrawer = async () => {
+    setShowNotionDrawer(true);
+    setNotionSearch('');
+    setNotionActiveSegments([]);
+    setNotionSelected(new Set());
+    if (notionContacts.length > 0) return; // already loaded
+    setNotionLoading(true);
+    try {
+      const data = await api.getNotionContacts('', '');
+      setNotionContacts(data);
+    } catch {
+      toast.error('Failed to load Notion contacts');
+    } finally {
+      setNotionLoading(false);
+    }
+  };
 
-  const updateCell = (rowIdx, field, value) => {
+  const toggleNotionSegment = (seg) => {
+    setNotionActiveSegments(prev =>
+      prev.includes(seg) ? prev.filter(s => s !== seg) : [...prev, seg]
+    );
+  };
+
+  const existingPhones = new Set(rows.map(r => r.phone.replace(/\D/g, '')).filter(p => p.length >= 10));
+
+  const filteredNotion = notionContacts.filter(c => {
+    const segMatch = notionActiveSegments.length === 0 || c.segments.some(s => notionActiveSegments.includes(s));
+    const searchVal = notionSearch.toLowerCase();
+    const textMatch = !searchVal || c.name.toLowerCase().includes(searchVal) || c.phone.includes(searchVal);
+    return segMatch && textMatch;
+  });
+
+  const selectableNotion = filteredNotion.filter(c => !existingPhones.has(c.phone.replace(/\D/g, '')));
+  const allVisibleSelected = selectableNotion.length > 0 && selectableNotion.every(c => notionSelected.has(c.phone));
+
+  const toggleNotionSelectAll = () => {
+    if (allVisibleSelected) {
+      setNotionSelected(prev => {
+        const next = new Set(prev);
+        selectableNotion.forEach(c => next.delete(c.phone));
+        return next;
+      });
+    } else {
+      setNotionSelected(prev => {
+        const next = new Set(prev);
+        selectableNotion.forEach(c => next.add(c.phone));
+        return next;
+      });
+    }
+  };
+
+  const toggleNotionContact = (phone) => {
+    setNotionSelected(prev => {
+      const next = new Set(prev);
+      next.has(phone) ? next.delete(phone) : next.add(phone);
+      return next;
+    });
+  };
+
+  const addNotionContacts = () => {
+    const toAdd = notionContacts
+      .filter(c => notionSelected.has(c.phone) && !existingPhones.has(c.phone.replace(/\D/g, '')))
+      .map(c => ({ phone: c.phone, params: Array(numParams).fill(''), mediaUrl: '' }));
+
+    setRows(prev => {
+      const filled = prev.filter(r => r.phone.trim());
+      return filled.length > 0 ? [...filled, ...toAdd] : toAdd.length > 0 ? toAdd : [makeEmptyRow(numParams)];
+    });
+    setInputMode('table');
+    setShowNotionDrawer(false);
+    setNotionSelected(new Set());
+    toast.success(`Added ${toAdd.length} contact${toAdd.length !== 1 ? 's' : ''}`);
+  };
+
+  // ── Table helpers ────────────────────────────────────────────────────────────
+
+  const addRow = () => setRows(prev => [...prev, makeEmptyRow(numParams)]);
+  const removeRow = (i) => setRows(prev => prev.length === 1 ? [makeEmptyRow(numParams)] : prev.filter((_, idx) => idx !== i));
+  const updateCell = (ri, field, value) => {
     setRows(prev => prev.map((r, i) => {
-      if (i !== rowIdx) return r;
+      if (i !== ri) return r;
       if (field === 'phone') return { ...r, phone: value };
       if (field === 'mediaUrl') return { ...r, mediaUrl: value };
       if (field.startsWith('param_')) {
         const pi = parseInt(field.split('_')[1]);
-        const params = [...r.params];
-        params[pi] = value;
+        const params = [...r.params]; params[pi] = value;
         return { ...r, params };
       }
       return r;
@@ -166,34 +298,28 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
   };
 
   const switchToCsv = () => {
-    const csv = rowsToCsv(rows.filter(r => r.phone));
+    const csv = rowsToCsv(rows);
     if (csv) setCsvData(csv);
     setInputMode('csv');
   };
 
-  // ── Validate & build preview ───────────────────────────────────────────────
+  // ── Preview & Send ───────────────────────────────────────────────────────────
 
   const handlePreview = () => {
-    const validRows = [];
-    const errors = [];
-
+    const validRows = [], errors = [];
     if (inputMode === 'table') {
       rows.forEach((r, i) => {
         if (!r.phone.trim()) return;
         const errs = validateRow(r, numParams, hasMedia);
-        if (errs.length > 0) {
-          errors.push(`Row ${i + 1}: ${errs.map(e => e.msg).join(', ')}`);
-        } else {
-          validRows.push({ phone: r.phone.replace(/\D/g, ''), params: r.params, mediaUrl: r.mediaUrl });
-        }
+        if (errs.length) errors.push(`Row ${i + 1}: ${errs.map(e => e.msg).join(', ')}`);
+        else validRows.push({ phone: r.phone.replace(/\D/g, ''), params: r.params, mediaUrl: r.mediaUrl });
       });
     } else {
-      const lines = csvData.trim().split(/\r?\n/);
-      lines.forEach((line, i) => {
+      csvData.trim().split(/\r?\n/).forEach((line, i) => {
         if (!line.trim()) return;
         const cols = line.split(',').map(c => c.trim());
         const phone = (cols[0] || '').replace(/\D/g, '');
-        if (!phone || phone.length < 10) { errors.push(`Row ${i + 1}: Invalid phone "${cols[0]}"`); return; }
+        if (!phone || phone.length < 10) { errors.push(`Row ${i + 1}: Invalid phone`); return; }
         const params = cols.slice(1, 1 + numParams);
         if (params.length < numParams || params.some(p => !p.trim())) { errors.push(`Row ${i + 1}: Missing params`); return; }
         const mediaUrl = cols[1 + numParams] || '';
@@ -201,51 +327,57 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
         validRows.push({ phone, params, mediaUrl });
       });
     }
-
-    setBulkRows(validRows);
-    setBulkErrors(errors);
-    setPreviewImageError(false);
-    setShowPreview(true);
+    setBulkRows(validRows); setBulkErrors(errors);
+    setPreviewImageError(false); setShowPreview(true);
   };
 
   const handleSendBulk = () => {
     setShowPreview(false);
+    localStorage.removeItem(DRAFT_KEY);
     onClose();
-
     toast.promise(
       (async () => {
-        let sentCount = 0;
-        let failCount = 0;
+        let sent = 0, failed = 0;
         for (const row of bulkRows) {
           const bodyParams = row.params.map(p => ({ type: 'text', text: p }));
           const data = { phone: row.phone, template_name: selected.name, language_code: selected.language, body_params: bodyParams };
           if (selected.header_format === 'IMAGE' && row.mediaUrl) data.header_image_url = row.mediaUrl;
           else if (selected.header_format === 'VIDEO' && row.mediaUrl) data.header_video_url = row.mediaUrl;
           else if (selected.header_format === 'DOCUMENT' && row.mediaUrl) data.header_document_url = row.mediaUrl;
-          try { await onSend(data); sentCount++; } catch { failCount++; }
+          try { await onSend(data); sent++; } catch { failed++; }
         }
-        if (failCount > 0) throw new Error(`${sentCount} sent, ${failCount} failed`);
-        return `Sent to ${sentCount} contact${sentCount !== 1 ? 's' : ''}`;
+        if (failed > 0) throw new Error(`${sent} sent, ${failed} failed`);
+        return `Sent to ${sent} contact${sent !== 1 ? 's' : ''}`;
       })(),
-      { loading: `Sending to ${bulkRows.length}…`, success: msg => msg, error: err => err.message }
+      { loading: `Sending to ${bulkRows.length}…`, success: m => m, error: e => e.message }
     );
   };
 
-  // ── Derived UI state ───────────────────────────────────────────────────────
+  // ── Back / discard guard ─────────────────────────────────────────────────────
 
-  const tableHasAnyError = rowErrors.some(errs => errs.length > 0);
+  const handleBack = () => {
+    if (hasData) setShowDiscardConfirm(true);
+    else { localStorage.removeItem(DRAFT_KEY); onClose(); }
+  };
+
+  // ── Derived ──────────────────────────────────────────────────────────────────
+
+  const tableHasAnyError = rowErrors.some(e => e.length > 0);
   const tableHasAnyRow = rows.some(r => r.phone.trim());
-  const csvHasContent = csvData.trim().length > 0;
-  const canPreview = selected && (inputMode === 'table' ? tableHasAnyRow : csvHasContent);
-
+  const canPreview = selected && (inputMode === 'table' ? tableHasAnyRow : csvData.trim().length > 0);
   const colHeaders = ['Phone', ...Array.from({ length: numParams }, (_, i) => `Param ${i + 1}`), ...(hasMedia ? [selected.header_format + ' URL'] : [])];
+  const recipientCount = inputMode === 'table'
+    ? rows.filter(r => r.phone.trim()).length
+    : csvData.trim().split(/\r?\n/).filter(l => l.trim()).length;
+
+  // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
     <div className="fixed inset-0 bg-wa-dark z-50 flex flex-col">
 
       {/* ── Top bar ─────────────────────────────────────────────────────────── */}
-      <div className="shrink-0 flex items-center gap-3 px-4 py-3 border-b border-wa-border bg-wa-dark">
-        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-wa-hover transition-colors text-wa-muted">
+      <div className="shrink-0 flex items-center gap-3 px-4 py-3 border-b border-wa-border">
+        <button onClick={handleBack} className="p-1.5 rounded-lg hover:bg-wa-hover transition-colors text-wa-muted">
           <ArrowLeft size={18} />
         </button>
         <h1 className="text-base font-semibold text-wa-text flex-1">Bulk Send</h1>
@@ -256,11 +388,20 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
         )}
       </div>
 
+      {/* ── Draft restore banner ─────────────────────────────────────────────── */}
+      {draftBanner && (
+        <div className="shrink-0 mx-4 mt-3 px-4 py-2.5 bg-wa-green/10 border border-wa-green/20 rounded-lg flex items-center gap-3">
+          <span className="text-sm text-wa-text flex-1">You have an unsaved draft from a previous session.</span>
+          <button onClick={restoreDraft} className="text-xs font-semibold text-wa-green hover:underline">Restore</button>
+          <button onClick={discardDraft} className="text-xs text-wa-muted hover:text-wa-text">Discard</button>
+        </div>
+      )}
+
       {/* ── Body ────────────────────────────────────────────────────────────── */}
       <div className="flex-1 flex overflow-hidden min-h-0">
 
         {/* Left: Template list */}
-        <div className="w-64 shrink-0 border-r border-wa-border flex flex-col bg-wa-dark overflow-hidden">
+        <div className="w-64 shrink-0 border-r border-wa-border flex flex-col overflow-hidden">
           <div className="px-3 py-2.5 border-b border-wa-border shrink-0">
             <p className="text-xs font-semibold text-wa-muted uppercase tracking-wider">1 · Select Template</p>
           </div>
@@ -270,14 +411,8 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
             ) : templates.length === 0 ? (
               <p className="text-wa-muted text-sm px-2 py-4">No templates found</p>
             ) : templates.map(t => (
-              <div
-                key={t.id}
-                onClick={() => handleSelectTemplate(t)}
-                className={`p-2.5 rounded-lg cursor-pointer border transition-all ${
-                  selected?.id === t.id
-                    ? 'border-wa-green bg-wa-green/10'
-                    : 'border-wa-border/60 hover:border-wa-muted/50 bg-wa-input/40'
-                }`}
+              <div key={t.id} onClick={() => { setSelected(t); setBulkRows([]); setBulkErrors([]); }}
+                className={`p-2.5 rounded-lg cursor-pointer border transition-all ${selected?.id === t.id ? 'border-wa-green bg-wa-green/10' : 'border-wa-border/60 hover:border-wa-muted/50 bg-wa-input/40'}`}
               >
                 <div className="flex items-center justify-between gap-1 mb-0.5">
                   <span className="text-sm font-medium text-wa-text truncate">{t.name}</span>
@@ -296,39 +431,140 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
 
         {/* Right: Recipients */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-wa-border shrink-0 flex items-center justify-between gap-3">
-            <p className="text-xs font-semibold text-wa-muted uppercase tracking-wider">2 · Add Recipients</p>
 
-            {/* Mode toggle */}
-            <div className="flex bg-wa-input rounded-lg p-0.5 gap-0.5">
-              <button
-                onClick={() => inputMode === 'csv' ? switchToTable() : setInputMode('table')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all ${inputMode === 'table' ? 'bg-wa-dark text-wa-text shadow' : 'text-wa-muted hover:text-wa-text'}`}
-              >
-                <Table2 size={12} /> Fill Table
-              </button>
-              <button
-                onClick={() => inputMode === 'table' ? switchToCsv() : setInputMode('csv')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all ${inputMode === 'csv' ? 'bg-wa-dark text-wa-text shadow' : 'text-wa-muted hover:text-wa-text'}`}
-              >
-                <ClipboardPaste size={12} /> Paste CSV
-              </button>
-            </div>
+          {/* Recipients header */}
+          <div className="px-4 py-2.5 border-b border-wa-border shrink-0 flex items-center gap-2">
+            <p className="text-xs font-semibold text-wa-muted uppercase tracking-wider flex-1">2 · Add Recipients</p>
+
+            {/* Notion button */}
+            <button
+              onClick={showNotionDrawer ? () => setShowNotionDrawer(false) : openNotionDrawer}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all border ${showNotionDrawer ? 'bg-wa-green/10 border-wa-green/30 text-wa-green' : 'border-wa-border text-wa-muted hover:text-wa-text hover:border-wa-muted/50'}`}
+            >
+              <BookUser size={12} /> From Notion
+            </button>
+
+            {/* Mode toggle — hidden when drawer open */}
+            {!showNotionDrawer && (
+              <div className="flex bg-wa-input rounded-lg p-0.5 gap-0.5">
+                <button onClick={() => inputMode === 'csv' ? switchToTable() : null}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all ${inputMode === 'table' ? 'bg-wa-dark text-wa-text shadow' : 'text-wa-muted hover:text-wa-text'}`}
+                >
+                  <Table2 size={12} /> Fill Table
+                </button>
+                <button onClick={() => inputMode === 'table' ? switchToCsv() : null}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all ${inputMode === 'csv' ? 'bg-wa-dark text-wa-text shadow' : 'text-wa-muted hover:text-wa-text'}`}
+                >
+                  <ClipboardPaste size={12} /> Paste CSV
+                </button>
+              </div>
+            )}
           </div>
 
-          {inputMode === 'table' ? (
+          {/* Content */}
+          {showNotionDrawer ? (
+
+            /* ── NOTION DRAWER ──────────────────────────────────────────────── */
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              {/* Segment chips */}
+              <div className="shrink-0 px-3 py-2 border-b border-wa-border flex gap-1.5 overflow-x-auto scrollbar-none">
+                {NOTION_SEGMENTS.map(seg => (
+                  <button key={seg} onClick={() => toggleNotionSegment(seg)}
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${notionActiveSegments.includes(seg) ? 'bg-wa-green text-wa-darker' : 'bg-wa-input text-wa-muted hover:text-wa-text'}`}
+                  >
+                    {seg}
+                  </button>
+                ))}
+              </div>
+
+              {/* Search */}
+              <div className="shrink-0 px-3 py-2 border-b border-wa-border">
+                <div className="relative">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-wa-muted" />
+                  <input type="text" placeholder="Search name or phone…" value={notionSearch}
+                    onChange={e => setNotionSearch(e.target.value)}
+                    className="w-full bg-wa-input text-wa-text text-sm rounded-lg pl-7 pr-3 py-1.5 outline-none placeholder:text-wa-muted focus:ring-1 focus:ring-wa-green/30"
+                  />
+                </div>
+              </div>
+
+              {/* Select all row */}
+              {filteredNotion.length > 0 && (
+                <div className="shrink-0 px-3 py-1.5 border-b border-wa-border flex items-center justify-between">
+                  <button onClick={toggleNotionSelectAll} className="text-xs text-wa-muted hover:text-wa-green transition-colors">
+                    {allVisibleSelected ? 'Deselect all' : `Select all (${selectableNotion.length})`}
+                  </button>
+                  {notionSelected.size > 0 && (
+                    <span className="text-xs text-wa-green font-medium">{notionSelected.size} selected</span>
+                  )}
+                </div>
+              )}
+
+              {/* Contact list */}
+              <div className="flex-1 overflow-y-auto">
+                {notionLoading ? (
+                  <p className="text-center text-wa-muted text-sm py-8">Loading contacts…</p>
+                ) : filteredNotion.length === 0 ? (
+                  <p className="text-center text-wa-muted text-sm py-8">No contacts found</p>
+                ) : filteredNotion.map(c => {
+                  const alreadyAdded = existingPhones.has(c.phone.replace(/\D/g, ''));
+                  const isChecked = notionSelected.has(c.phone);
+                  return (
+                    <div key={c.phone}
+                      onClick={() => !alreadyAdded && toggleNotionContact(c.phone)}
+                      className={`flex items-center gap-3 px-3 py-2.5 border-b border-wa-border/30 transition-colors ${alreadyAdded ? 'opacity-40 cursor-default' : 'hover:bg-wa-hover/50 cursor-pointer'} ${isChecked ? 'bg-wa-green/5' : ''}`}
+                    >
+                      <input type="checkbox" checked={isChecked || alreadyAdded} disabled={alreadyAdded}
+                        onChange={() => {}} className="accent-wa-green w-4 h-4 shrink-0 pointer-events-none"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-wa-text truncate">{c.name || 'Unknown'}</span>
+                          {alreadyAdded && <span className="text-[10px] text-wa-green bg-wa-green/10 px-1.5 py-0.5 rounded-full">Added</span>}
+                          {c.status && !alreadyAdded && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full text-white ${STATUS_COLORS[c.status] || 'bg-gray-600'}`}>{c.status}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-xs text-wa-muted font-mono">{c.phone}</span>
+                          {c.segments.slice(0, 2).map(s => (
+                            <span key={s} className="text-[10px] text-wa-muted/60 bg-wa-input px-1 rounded">{s}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Add button */}
+              {notionSelected.size > 0 && (
+                <div className="shrink-0 px-4 py-3 border-t border-wa-border">
+                  <button onClick={addNotionContacts}
+                    className="w-full flex items-center justify-center gap-2 bg-wa-green text-wa-darker py-2.5 rounded-lg font-semibold text-sm hover:bg-wa-green/90 transition-colors"
+                  >
+                    <Plus size={15} />
+                    Add {notionSelected.size} contact{notionSelected.size !== 1 ? 's' : ''} to table
+                  </button>
+                </div>
+              )}
+            </div>
+
+          ) : inputMode === 'table' ? (
+
             /* ── TABLE MODE ─────────────────────────────────────────────────── */
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
               {!selected ? (
-                <div className="flex-1 flex items-center justify-center text-wa-muted text-sm">
-                  Select a template first to see columns
+                <div className="flex-1 flex flex-col items-center justify-center gap-3 text-wa-muted">
+                  <p className="text-sm">Select a template first to see columns</p>
+                  <p className="text-xs">or use <span className="text-wa-green font-medium">From Notion</span> to import contacts</p>
                 </div>
               ) : (
                 <>
                   {/* Column headers */}
                   <div className="shrink-0 flex items-center gap-2 px-4 py-2 border-b border-wa-border bg-wa-input/30">
                     {colHeaders.map((h, i) => (
-                      <div key={i} className={`text-[11px] font-semibold text-wa-muted uppercase tracking-wide ${i === 0 ? 'w-40 shrink-0' : i === colHeaders.length - 1 && hasMedia ? 'flex-1 min-w-0' : 'w-28 shrink-0'}`}>
+                      <div key={i} className={`text-[11px] font-semibold text-wa-muted uppercase tracking-wide ${i === 0 ? 'w-40 shrink-0' : hasMedia && i === colHeaders.length - 1 ? 'flex-1 min-w-0' : 'w-28 shrink-0'}`}>
                         {h}
                       </div>
                     ))}
@@ -339,59 +575,38 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
                   <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1.5">
                     {rows.map((row, ri) => {
                       const errs = rowErrors[ri] || [];
-                      const fieldErr = (field) => errs.find(e => e.field === field);
+                      const fieldErr = f => errs.find(e => e.field === f);
                       return (
                         <div key={ri} className="flex items-center gap-2">
-                          {/* Phone */}
-                          <input
-                            type="text"
-                            value={row.phone}
-                            onChange={e => updateCell(ri, 'phone', e.target.value)}
+                          <input type="text" value={row.phone} onChange={e => updateCell(ri, 'phone', e.target.value)}
                             placeholder="447700900000"
                             className={`w-40 shrink-0 bg-wa-input text-wa-text text-xs rounded-lg px-2.5 py-2 outline-none font-mono placeholder:text-wa-muted/40 ${fieldErr('phone') && row.phone ? 'ring-1 ring-red-400/60' : 'focus:ring-1 focus:ring-wa-green/30'}`}
                           />
-                          {/* Params */}
                           {Array.from({ length: numParams }, (_, pi) => (
-                            <input
-                              key={pi}
-                              type="text"
-                              value={row.params[pi] || ''}
-                              onChange={e => updateCell(ri, `param_${pi}`, e.target.value)}
+                            <input key={pi} type="text" value={row.params[pi] || ''} onChange={e => updateCell(ri, `param_${pi}`, e.target.value)}
                               placeholder={`{{${pi + 1}}}`}
                               className={`w-28 shrink-0 bg-wa-input text-wa-text text-xs rounded-lg px-2.5 py-2 outline-none placeholder:text-wa-muted/40 ${fieldErr(`param_${pi}`) && row.params[pi] !== undefined ? 'ring-1 ring-red-400/60' : 'focus:ring-1 focus:ring-wa-green/30'}`}
                             />
                           ))}
-                          {/* Media URL */}
                           {hasMedia && (
-                            <input
-                              type="url"
-                              value={row.mediaUrl}
-                              onChange={e => updateCell(ri, 'mediaUrl', e.target.value)}
-                              placeholder="https://..."
+                            <input type="url" value={row.mediaUrl} onChange={e => updateCell(ri, 'mediaUrl', e.target.value)}
+                              placeholder="https://…"
                               className={`flex-1 min-w-0 bg-wa-input text-wa-text text-xs rounded-lg px-2.5 py-2 outline-none placeholder:text-wa-muted/40 ${fieldErr('mediaUrl') && row.mediaUrl ? 'ring-1 ring-red-400/60' : 'focus:ring-1 focus:ring-wa-green/30'}`}
                             />
                           )}
-                          {/* Delete row */}
-                          <button
-                            onClick={() => removeRow(ri)}
-                            disabled={rows.length === 1}
-                            className="w-7 shrink-0 flex items-center justify-center text-wa-muted/50 hover:text-red-400 disabled:opacity-20 transition-colors"
+                          <button onClick={() => removeRow(ri)}
+                            className="w-7 shrink-0 flex items-center justify-center text-wa-muted/50 hover:text-red-400 transition-colors"
                           >
                             <Trash2 size={13} />
                           </button>
                         </div>
                       );
                     })}
-
-                    <button
-                      onClick={addRow}
-                      className="flex items-center gap-1.5 text-xs text-wa-muted hover:text-wa-green transition-colors py-1 mt-1"
-                    >
+                    <button onClick={addRow} className="flex items-center gap-1.5 text-xs text-wa-muted hover:text-wa-green transition-colors py-1 mt-1">
                       <Plus size={13} /> Add Row
                     </button>
                   </div>
 
-                  {/* Inline error summary */}
                   {tableHasAnyError && tableHasAnyRow && (
                     <div className="shrink-0 mx-4 mb-2 px-3 py-2 bg-red-400/5 border border-red-400/20 rounded-lg flex items-start gap-2">
                       <AlertCircle size={13} className="text-red-400 mt-0.5 shrink-0" />
@@ -401,28 +616,23 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
                 </>
               )}
             </div>
+
           ) : (
+
             /* ── CSV MODE ───────────────────────────────────────────────────── */
             <div className="flex-1 flex flex-col min-h-0 p-4 gap-3">
-              {/* Format hint */}
               <div className="shrink-0 text-[11px] text-wa-muted p-2.5 bg-wa-input/50 rounded-lg leading-relaxed">
-                <span className="font-semibold text-wa-text">Format</span> — one row per line, comma-separated, no header row:<br />
+                <span className="font-semibold text-wa-text">Format</span> — one row per line, comma-separated, no header:<br />
                 <span className="font-mono text-wa-green">
-                  Phone{numParams > 0 ? Array.from({ length: numParams }, (_, i) => `, Param${i + 1}`).join('') : ''}{hasMedia ? `, ${selected.header_format}_URL` : ''}
+                  Phone{numParams > 0 ? Array.from({ length: numParams }, (_, i) => `, Param${i + 1}`).join('') : ''}{hasMedia ? `, ${selected?.header_format}_URL` : ''}
                 </span>
               </div>
-
               {liveErrors.length > 0 && (
                 <div className="shrink-0 px-3 py-2 bg-red-400/5 border border-red-400/20 rounded-lg max-h-24 overflow-y-auto">
-                  {liveErrors.map((e, i) => (
-                    <p key={i} className="text-[11px] text-red-400">• {e}</p>
-                  ))}
+                  {liveErrors.map((e, i) => <p key={i} className="text-[11px] text-red-400">• {e}</p>)}
                 </div>
               )}
-
-              <textarea
-                value={csvData}
-                onChange={e => setCsvData(e.target.value)}
+              <textarea value={csvData} onChange={e => setCsvData(e.target.value)}
                 placeholder={`447700900000${numParams > 0 ? ', John' : ''}${hasMedia ? ', https://example.com/img.jpg' : ''}\n917898765432${numParams > 0 ? ', Priya' : ''}${hasMedia ? ', https://example.com/img2.jpg' : ''}`}
                 className="flex-1 min-h-0 bg-wa-input text-wa-text text-sm rounded-lg px-3 py-2.5 outline-none resize-none placeholder:text-wa-muted/40 focus:ring-1 focus:ring-wa-green/30 font-mono"
               />
@@ -432,21 +642,44 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
       </div>
 
       {/* ── Footer ──────────────────────────────────────────────────────────── */}
-      <div className="shrink-0 px-4 py-3 border-t border-wa-border bg-wa-dark flex items-center gap-3">
+      <div className="shrink-0 px-4 py-3 border-t border-wa-border flex items-center gap-3">
         <div className="flex-1 text-xs text-wa-muted">
-          {inputMode === 'table'
-            ? `${rows.filter(r => r.phone.trim()).length} recipient${rows.filter(r => r.phone.trim()).length !== 1 ? 's' : ''} entered`
-            : `${csvData.trim().split(/\r?\n/).filter(l => l.trim()).length} line${csvData.trim().split(/\r?\n/).filter(l => l.trim()).length !== 1 ? 's' : ''} pasted`}
+          {showNotionDrawer
+            ? `${filteredNotion.length} contacts in Notion`
+            : `${recipientCount} recipient${recipientCount !== 1 ? 's' : ''}`}
         </div>
-        <button
-          onClick={handlePreview}
-          disabled={!canPreview || sending}
-          className="flex items-center gap-2 bg-wa-green text-wa-darker font-semibold px-5 py-2.5 rounded-lg hover:bg-wa-green/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm"
-        >
-          <Send size={15} />
-          Preview & Send
-        </button>
+        {!showNotionDrawer && (
+          <button onClick={handlePreview} disabled={!canPreview || sending}
+            className="flex items-center gap-2 bg-wa-green text-wa-darker font-semibold px-5 py-2.5 rounded-lg hover:bg-wa-green/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm"
+          >
+            <Send size={15} /> Preview & Send
+          </button>
+        )}
       </div>
+
+      {/* ── Discard confirm dialog ───────────────────────────────────────────── */}
+      {showDiscardConfirm && (
+        <div className="fixed inset-0 bg-black/70 z-[70] flex items-center justify-center p-4">
+          <div className="bg-wa-dark border border-wa-border rounded-xl shadow-2xl w-full max-w-sm p-6 flex flex-col gap-4">
+            <div>
+              <h3 className="font-semibold text-wa-text text-base mb-1">Discard this blast?</h3>
+              <p className="text-sm text-wa-muted">Your recipients and template selection will be lost. The draft is saved locally and can be restored next time.</p>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setShowDiscardConfirm(false)}
+                className="flex-1 py-2.5 text-sm font-medium text-wa-text hover:bg-wa-hover rounded-lg border border-wa-border transition-colors"
+              >
+                Keep Editing
+              </button>
+              <button onClick={() => { localStorage.removeItem(DRAFT_KEY); onClose(); }}
+                className="flex-1 py-2.5 text-sm font-semibold text-red-400 hover:bg-red-400/10 rounded-lg border border-red-400/30 transition-colors"
+              >
+                Discard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Preview overlay ──────────────────────────────────────────────────── */}
       {showPreview && (
@@ -456,9 +689,7 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
               <h3 className="font-semibold text-wa-text">Preview · {selected?.name}</h3>
               <button onClick={() => setShowPreview(false)}><X size={20} className="text-wa-muted" /></button>
             </div>
-
             <div className="flex-1 overflow-y-auto p-5 space-y-5">
-              {/* Stats */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-wa-input p-3 rounded-lg border border-wa-border text-center">
                   <div className="text-2xl font-bold text-wa-green">{bulkRows.length}</div>
@@ -469,8 +700,6 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
                   <div className="text-xs text-wa-muted">Skipped (errors)</div>
                 </div>
               </div>
-
-              {/* Errors */}
               {bulkErrors.length > 0 && (
                 <div>
                   <h4 className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-2">Skipped rows</h4>
@@ -479,24 +708,18 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
                   </div>
                 </div>
               )}
-
-              {/* Message preview */}
               {bulkRows.length > 0 && (
                 <>
                   <h4 className="text-xs font-semibold text-wa-muted uppercase tracking-wider">Message Preview (first recipient)</h4>
                   <div className="bg-wa-incoming/50 rounded-lg p-3 border border-wa-border">
                     {selected?.header_format === 'IMAGE' && bulkRows[0]?.mediaUrl && (
                       <div className="mb-2">
-                        <img
-                          src={bulkRows[0].mediaUrl}
-                          onError={() => setPreviewImageError(true)}
-                          onLoad={() => setPreviewImageError(false)}
-                          className={`w-full max-h-40 object-cover rounded border border-wa-border/50 bg-black/20 ${previewImageError ? 'hidden' : 'block'}`}
-                          alt="Preview"
+                        <img src={bulkRows[0].mediaUrl} onError={() => setPreviewImageError(true)} onLoad={() => setPreviewImageError(false)}
+                          className={`w-full max-h-40 object-cover rounded border border-wa-border/50 bg-black/20 ${previewImageError ? 'hidden' : 'block'}`} alt="Preview"
                         />
                         {previewImageError && (
                           <p className="text-[11px] text-red-400 p-2 bg-red-900/10 border border-red-900/30 rounded">
-                            Image URL couldn't load — sending may still work if the URL is valid.
+                            Image couldn't load — sending may still work if the URL is valid.
                           </p>
                         )}
                       </div>
@@ -515,21 +738,16 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
                 </>
               )}
             </div>
-
             <div className="p-4 border-t border-wa-border flex gap-3 shrink-0">
-              <button
-                onClick={() => setShowPreview(false)}
-                className="flex-1 py-2.5 text-wa-text hover:bg-wa-hover rounded-lg transition-colors border border-wa-border text-sm"
+              <button onClick={() => setShowPreview(false)}
+                className="flex-1 py-2.5 text-wa-text hover:bg-wa-hover rounded-lg border border-wa-border text-sm transition-colors"
               >
                 Go Back
               </button>
-              <button
-                onClick={handleSendBulk}
-                disabled={bulkRows.length === 0 || sending}
-                className="flex-[2] py-2.5 bg-wa-green text-wa-darker font-bold rounded-lg hover:bg-wa-green/90 transition-all disabled:opacity-40 text-sm flex items-center justify-center gap-2"
+              <button onClick={handleSendBulk} disabled={bulkRows.length === 0 || sending}
+                className="flex-[2] py-2.5 bg-wa-green text-wa-darker font-bold rounded-lg hover:bg-wa-green/90 disabled:opacity-40 text-sm flex items-center justify-center gap-2 transition-all"
               >
-                <Send size={14} />
-                Send to {bulkRows.length} contact{bulkRows.length !== 1 ? 's' : ''}
+                <Send size={14} /> Send to {bulkRows.length} contact{bulkRows.length !== 1 ? 's' : ''}
               </button>
             </div>
           </div>
