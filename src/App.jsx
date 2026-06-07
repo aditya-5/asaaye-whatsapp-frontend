@@ -61,7 +61,13 @@ export default function App() {
       }
       loadConversations();
     } else if (event.type === 'status_update') {
-      setMessages(prev => prev.map(m => m.id === event.data.message_id ? { ...m, status: event.data.status } : m));
+      const upd = event.data;
+      setMessages(prev => prev.map(m =>
+        m.id === upd.message_id ? { ...m, status: upd.status, error_message: upd.error_message } : m
+      ));
+      if (upd.status === 'failed' && upd.error_message) {
+        toast.error(upd.error_message, { duration: 6000 });
+      }
     }
   }, [activeConversation, loadConversations]);
 
@@ -104,9 +110,18 @@ export default function App() {
   };
 
   const handleSendTemplate = async (data) => {
-    toast.promise(api.sendTemplate(data).then(() => loadConversations()), {
-      loading: 'Sending template...', success: 'Template sent!', error: e => e.message || 'Failed to send template',
-    });
+    toast.promise(
+      api.sendTemplate(data).then(async (msg) => {
+        const convs = await api.getConversations();
+        setConversations(convs);
+        const conv = convs.find(c => c.contact.phone === data.phone);
+        if (conv) {
+          setActiveConversation(conv);
+          setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+        }
+      }),
+      { loading: 'Sending...', success: 'Sent ✓', error: e => e.message || 'Failed to send' }
+    );
   };
 
   // ContactPicker: open chat with a single Notion contact
