@@ -28,6 +28,7 @@ export default function App() {
   const [authed, setAuthed] = useState(() => localStorage.getItem('auth') === 'true');
   const [password, setPassword] = useState('');
   const [conversationsLoading, setConversationsLoading] = useState(true);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [notionContacts, setNotionContacts] = useState([]);
 
   // Inline ref update: always current on every render, no useEffect delay
@@ -49,19 +50,34 @@ export default function App() {
   useEffect(() => { api.getNotionContacts().then(setNotionContacts).catch(() => {}); }, []);
 
   useEffect(() => {
-    if (!activeConversation) { setMessages([]); return; }
-    if (messagesCache[activeConversation.id]) setMessages(messagesCache[activeConversation.id]);
+    if (!activeConversation) { setMessages([]); setMessagesLoading(false); return; }
+    if (messagesCache[activeConversation.id]) {
+      setMessages(messagesCache[activeConversation.id]);
+      setMessagesLoading(false);
+    } else {
+      setMessagesLoading(true);
+    }
     api.getMessages(activeConversation.id)
-      .then(data => { setMessages(data); setMessagesCache(prev => ({ ...prev, [activeConversation.id]: data })); })
-      .catch(console.error);
+      .then(data => {
+        setMessages(data);
+        setMessagesCache(prev => ({ ...prev, [activeConversation.id]: data }));
+        setMessagesLoading(false);
+      })
+      .catch(e => { console.error(e); setMessagesLoading(false); });
   }, [activeConversation?.id]);
 
   const handleWSMessage = useCallback((event) => {
     if (event.type === 'new_message') {
       const msg = event.data;
       const activConv = activeConvRef.current;
-      if (activConv && msg.conversation_id === activConv.id) {
+      const isActiveConv = activConv && msg.conversation_id === activConv.id;
+      if (isActiveConv) {
         setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+        // Auto mark-as-read: user is looking at this chat right now
+        if (msg.direction === 'inbound') {
+          api.markAsRead(activConv.id).catch(() => {});
+          setConversations(prev => prev.map(c => c.id === activConv.id ? { ...c, unread_count: 0 } : c));
+        }
       }
       // Keep cache up to date for all conversations (so switching back shows new messages)
       setMessagesCache(cache => {
@@ -70,7 +86,7 @@ export default function App() {
         if (cache[key].some(m => m.id === msg.id)) return cache;
         return { ...cache, [key]: [...cache[key], msg] };
       });
-      if (msg.direction === 'inbound') {
+      if (msg.direction === 'inbound' && !isActiveConv) {
         const name = msg.contact?.name || msg.contact?.phone || 'Unknown';
         toast(`${name}: ${msg.content?.substring(0, 60) || 'New message'}`, {
           icon: '💬', style: TOAST_OPTS.style, duration: 4000,
@@ -371,6 +387,7 @@ export default function App() {
             if (activeConversation) createNotionIfNew(activeConversation.contact.phone, newName);
           }}
           onConversationUpdate={loadConversations}
+          messagesLoading={messagesLoading}
         />
       </div>
 
