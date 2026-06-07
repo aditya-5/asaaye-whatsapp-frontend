@@ -70,29 +70,47 @@ export default function App() {
     if (event.type === 'new_message') {
       const msg = event.data;
       const activConv = activeConvRef.current;
-      const isActiveConv = activConv && msg.conversation_id === activConv.id;
+      const isActiveConv = !!(activConv && msg.conversation_id === activConv.id);
+
+      // Add to active chat view
       if (isActiveConv) {
         setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
-        // Auto mark-as-read: user is looking at this chat right now
-        if (msg.direction === 'inbound') {
-          api.markAsRead(activConv.id).catch(() => {});
-          setConversations(prev => prev.map(c => c.id === activConv.id ? { ...c, unread_count: 0 } : c));
-        }
       }
-      // Keep cache up to date for all conversations (so switching back shows new messages)
+
+      // Keep message cache in sync for all convs (only if already loaded)
       setMessagesCache(cache => {
         const key = msg.conversation_id;
         if (!cache[key]) return cache;
         if (cache[key].some(m => m.id === msg.id)) return cache;
         return { ...cache, [key]: [...cache[key], msg] };
       });
-      if (msg.direction === 'inbound' && !isActiveConv) {
-        const name = msg.contact?.name || msg.contact?.phone || 'Unknown';
-        toast(`${name}: ${msg.content?.substring(0, 60) || 'New message'}`, {
-          icon: '💬', style: TOAST_OPTS.style, duration: 4000,
+
+      // Optimistic sidebar update — don't wait for loadConversations round-trip
+      if (msg.direction === 'inbound') {
+        setConversations(prev => {
+          const idx = prev.findIndex(c => c.id === msg.conversation_id);
+          if (idx === -1) return prev; // unknown conv — loadConversations will add it
+          const conv = prev[idx];
+          const updated = {
+            ...conv,
+            unread_count: isActiveConv ? 0 : (msg.unread_count ?? (conv.unread_count || 0) + 1),
+            last_message: { content: msg.content, direction: 'inbound' },
+            last_message_at: msg.timestamp,
+          };
+          const rest = prev.filter((_, i) => i !== idx);
+          return [updated, ...rest];
         });
+        // Mark as read on server if user is already looking at this chat
+        if (isActiveConv) api.markAsRead(activConv.id).catch(() => {});
+        // Toast only for chats not currently open
+        if (!isActiveConv) {
+          const name = msg.contact?.name || msg.contact?.phone || 'Unknown';
+          toast(`${name}: ${msg.content?.substring(0, 60) || 'New message'}`, {
+            icon: '💬', style: TOAST_OPTS.style, duration: 4000,
+          });
+        }
       }
-      loadConversations();
+      loadConversations(); // background sync for accuracy
     } else if (event.type === 'reaction_update') {
       const upd = event.data;
       const reactionsJson = upd.reactions && Object.keys(upd.reactions).length
@@ -343,7 +361,13 @@ export default function App() {
             conversations={conversationsWithNames}
             activeId={activeConversation?.id}
             loading={conversationsLoading}
-            onSelect={conv => { setActiveConversation(conv); setShowAnalytics(false); }}
+            onSelect={conv => {
+              setActiveConversation(conv);
+              setShowAnalytics(false);
+              if (conv.unread_count > 0) {
+                setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, unread_count: 0 } : c));
+              }
+            }}
             onNewChat={() => { setTemplateInitialContact(null); setShowTemplatePicker(true); }}
           />
         </div>
