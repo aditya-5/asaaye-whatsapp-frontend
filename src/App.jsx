@@ -36,8 +36,17 @@ export default function App() {
   activeConvRef.current = activeConversation;
   const messagesCacheRef = useRef({});
   messagesCacheRef.current = messagesCache;
-  // Reaction previews survive loadConversations round-trips until a real message supersedes them
-  const reactionPreviewsRef = useRef(new Map());
+  // Reaction previews survive loadConversations round-trips AND page reloads
+  const reactionPreviewsRef = useRef((() => {
+    const map = new Map();
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith('rxn_')) {
+        try { map.set(Number(key.slice(4)), JSON.parse(localStorage.getItem(key))); } catch {}
+      }
+    }
+    return map;
+  })());
 
   const loadConversations = useCallback(async () => {
     try {
@@ -98,6 +107,7 @@ export default function App() {
 
       // Any real message supersedes a reaction preview for this conv
       reactionPreviewsRef.current.delete(msg.conversation_id);
+      localStorage.removeItem(`rxn_${msg.conversation_id}`);
 
       // Optimistic sidebar update — don't wait for loadConversations round-trip
       if (msg.direction === 'inbound') {
@@ -152,6 +162,7 @@ export default function App() {
             : `Reacted ${emoji} to "${msgPreview}"`;
           const lastMsgData = { content: preview, direction: dir };
           reactionPreviewsRef.current.set(upd.conversation_id, lastMsgData);
+          localStorage.setItem(`rxn_${upd.conversation_id}`, JSON.stringify(lastMsgData));
           setConversations(prev => prev.map(c => c.id === upd.conversation_id
             ? { ...c, last_message: lastMsgData }
             : c
@@ -160,6 +171,7 @@ export default function App() {
       } else {
         // All reactions removed — clear preview so server data takes over
         reactionPreviewsRef.current.delete(upd.conversation_id);
+        localStorage.removeItem(`rxn_${upd.conversation_id}`);
       }
     } else if (event.type === 'status_update') {
       const upd = event.data;
@@ -219,6 +231,7 @@ export default function App() {
 
   const optimisticConvUpdate = useCallback((convId, text, now) => {
     reactionPreviewsRef.current.delete(convId);
+    localStorage.removeItem(`rxn_${convId}`);
     setConversations(prev => {
       const updated = prev.map(c => c.id === convId
         ? { ...c, last_message: { content: text, direction: 'outbound' }, last_message_at: now }
