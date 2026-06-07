@@ -11,6 +11,9 @@ export function useWebSocket(onMessage, onConnect) {
   useEffect(() => { savedHandler.current = onMessage; }, [onMessage]);
   useEffect(() => { savedOnConnect.current = onConnect; }, [onConnect]);
 
+  const zombieCheckRef = useRef(null);
+  const lastReceivedRef = useRef(Date.now());
+
   const connect = useCallback(() => {
     const ENV_URL = import.meta.env.VITE_API_URL || '';
     const API_KEY = import.meta.env.VITE_API_KEY || '';
@@ -23,17 +26,27 @@ export function useWebSocket(onMessage, onConnect) {
     wsRef.current = ws;
 
     ws.onopen = () => {
+      lastReceivedRef.current = Date.now();
       setConnected(true);
       if (savedOnConnect.current) savedOnConnect.current();
-      // Heartbeat: send ping every 25s so Koyeb proxy doesn't drop idle connection
+
+      // Heartbeat: keep Koyeb proxy from dropping idle connection
       heartbeatRef.current = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'ping' }));
-        }
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
       }, 25000);
+
+      // Zombie detection: Koyeb proxy can silently drop the backend while keeping TCP
+      // open at the edge — readyState stays OPEN, pings buffer, onclose never fires.
+      // Server pings us every 30s; if we haven't received ANYTHING in 35s, force close.
+      zombieCheckRef.current = setInterval(() => {
+        if (Date.now() - lastReceivedRef.current > 35000) {
+          ws.close();
+        }
+      }, 10000);
     };
 
     ws.onmessage = (event) => {
+      lastReceivedRef.current = Date.now(); // any message resets the zombie timer
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'ping') return; // server heartbeat, ignore
@@ -46,6 +59,7 @@ export function useWebSocket(onMessage, onConnect) {
     ws.onclose = () => {
       setConnected(false);
       clearInterval(heartbeatRef.current);
+      clearInterval(zombieCheckRef.current);
       reconnectTimeoutRef.current = setTimeout(connect, 3000);
     };
 
@@ -62,6 +76,7 @@ export function useWebSocket(onMessage, onConnect) {
         wsRef.current.close();
       }
       clearInterval(heartbeatRef.current);
+      clearInterval(zombieCheckRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     };
   }, [connect]);

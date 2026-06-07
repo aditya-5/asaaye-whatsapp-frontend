@@ -173,6 +173,15 @@ export default function App() {
         reactionPreviewsRef.current.delete(upd.conversation_id);
         localStorage.removeItem(`rxn_${upd.conversation_id}`);
       }
+      // Belt-and-suspenders: refetch messages for active conv so reactions always render
+      // even if the WS event arrived while state was momentarily inconsistent
+      const activConvForReact = activeConvRef.current;
+      if (activConvForReact && upd.conversation_id === activConvForReact.id) {
+        api.getMessages(activConvForReact.id).then(data => {
+          setMessages(data);
+          setMessagesCache(c => ({ ...c, [activConvForReact.id]: data }));
+        }).catch(() => {});
+      }
     } else if (event.type === 'status_update') {
       const upd = event.data;
       const applyUpdate = (m) =>
