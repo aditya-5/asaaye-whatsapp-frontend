@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import { LogOut, ShieldAlert, Users } from 'lucide-react';
 import Sidebar from './components/Sidebar';
@@ -30,6 +30,10 @@ export default function App() {
   const [conversationsLoading, setConversationsLoading] = useState(true);
   const [notionContacts, setNotionContacts] = useState([]);
 
+  // Ref so handleWSMessage can always read latest activeConversation without being recreated
+  const activeConvRef = useRef(null);
+  useEffect(() => { activeConvRef.current = activeConversation; }, [activeConversation]);
+
   const loadConversations = useCallback(async () => {
     try {
       const data = await api.getConversations();
@@ -55,7 +59,8 @@ export default function App() {
   const handleWSMessage = useCallback((event) => {
     if (event.type === 'new_message') {
       const msg = event.data;
-      if (activeConversation && msg.conversation_id === activeConversation.id) {
+      const activConv = activeConvRef.current;
+      if (activConv && msg.conversation_id === activConv.id) {
         setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
       }
       if (msg.direction === 'inbound') {
@@ -101,7 +106,7 @@ export default function App() {
         });
       }
     }
-  }, [activeConversation, loadConversations]);
+  }, [loadConversations]);
 
   // On every WS connect (including reconnects), re-fetch active conversation messages
   // to catch any status updates that arrived while the socket was down (e.g. iOS PWA sleep)

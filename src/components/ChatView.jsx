@@ -53,6 +53,7 @@ export default function ChatView({
   const fileInputRef = useRef(null);
   const swipeStartX = useRef(0);
   const swipeStartY = useRef(0);
+  const prevConvIdRef = useRef(null);
 
   // Status & Labels
   const [convStatus, setConvStatus] = useState('open');
@@ -85,8 +86,11 @@ export default function ChatView({
   const longPressTimer = useRef(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (!messagesEndRef.current || !messages.length) return;
+    const isNewConv = conversation?.id !== prevConvIdRef.current;
+    prevConvIdRef.current = conversation?.id ?? null;
+    messagesEndRef.current.scrollIntoView({ behavior: isNewConv ? 'instant' : 'smooth' });
+  }, [messages, conversation?.id]);
 
   useEffect(() => {
     if (!activeMenuId && reactionPickerForMsgId === null) return;
@@ -536,7 +540,7 @@ export default function ChatView({
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Type a message... (/ for quick replies)"
+                placeholder="Type a message..."
                 rows={1}
                 className="w-full bg-wa-input text-wa-text rounded-lg px-4 py-2.5 text-sm outline-none resize-none placeholder:text-wa-muted focus:ring-1 focus:ring-wa-green/30 transition-all max-h-32"
                 style={{ minHeight: '42px' }}
