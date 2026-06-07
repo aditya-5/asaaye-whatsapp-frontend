@@ -30,9 +30,9 @@ export default function App() {
   const [conversationsLoading, setConversationsLoading] = useState(true);
   const [notionContacts, setNotionContacts] = useState([]);
 
-  // Ref so handleWSMessage can always read latest activeConversation without being recreated
+  // Inline ref update: always current on every render, no useEffect delay
   const activeConvRef = useRef(null);
-  useEffect(() => { activeConvRef.current = activeConversation; }, [activeConversation]);
+  activeConvRef.current = activeConversation;
 
   const loadConversations = useCallback(async () => {
     try {
@@ -63,6 +63,13 @@ export default function App() {
       if (activConv && msg.conversation_id === activConv.id) {
         setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
       }
+      // Keep cache up to date for all conversations (so switching back shows new messages)
+      setMessagesCache(cache => {
+        const key = msg.conversation_id;
+        if (!cache[key]) return cache;
+        if (cache[key].some(m => m.id === msg.id)) return cache;
+        return { ...cache, [key]: [...cache[key], msg] };
+      });
       if (msg.direction === 'inbound') {
         const name = msg.contact?.name || msg.contact?.phone || 'Unknown';
         toast(`${name}: ${msg.content?.substring(0, 60) || 'New message'}`, {
@@ -72,8 +79,10 @@ export default function App() {
       loadConversations();
     } else if (event.type === 'reaction_update') {
       const upd = event.data;
+      const reactionsJson = upd.reactions && Object.keys(upd.reactions).length
+        ? JSON.stringify(upd.reactions) : null;
       const applyReact = (m) => m.id === upd.message_id
-        ? { ...m, reactions: JSON.stringify(upd.reactions) }
+        ? { ...m, reactions: reactionsJson }
         : m;
       setMessages(prev => prev.map(applyReact));
       setMessagesCache(cache => {

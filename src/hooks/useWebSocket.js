@@ -4,6 +4,7 @@ export function useWebSocket(onMessage, onConnect) {
   const wsRef = useRef(null);
   const [connected, setConnected] = useState(false);
   const reconnectTimeoutRef = useRef(null);
+  const heartbeatRef = useRef(null);
 
   const savedHandler = useRef();
   const savedOnConnect = useRef();
@@ -23,13 +24,19 @@ export function useWebSocket(onMessage, onConnect) {
 
     ws.onopen = () => {
       setConnected(true);
-      console.log('WebSocket connected');
       if (savedOnConnect.current) savedOnConnect.current();
+      // Heartbeat: send ping every 25s so Koyeb proxy doesn't drop idle connection
+      heartbeatRef.current = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'ping' }));
+        }
+      }, 25000);
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        if (data.type === 'ping') return; // server heartbeat, ignore
         if (savedHandler.current) savedHandler.current(data);
       } catch (e) {
         console.error('Failed to parse WS message:', e);
@@ -38,7 +45,7 @@ export function useWebSocket(onMessage, onConnect) {
 
     ws.onclose = () => {
       setConnected(false);
-      console.log('WebSocket disconnected, reconnecting in 3s...');
+      clearInterval(heartbeatRef.current);
       reconnectTimeoutRef.current = setTimeout(connect, 3000);
     };
 
@@ -54,6 +61,7 @@ export function useWebSocket(onMessage, onConnect) {
         wsRef.current.onclose = null;
         wsRef.current.close();
       }
+      clearInterval(heartbeatRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     };
   }, [connect]);
