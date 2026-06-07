@@ -27,6 +27,8 @@ export default function App() {
   const [blastContacts, setBlastContacts] = useState(null);
   const [authed, setAuthed] = useState(() => localStorage.getItem('auth') === 'true');
   const [password, setPassword] = useState('');
+  const [conversationsLoading, setConversationsLoading] = useState(true);
+  const [notionContacts, setNotionContacts] = useState([]);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -34,10 +36,13 @@ export default function App() {
       setConversations(data);
     } catch (e) {
       console.error('Failed to load conversations:', e);
+    } finally {
+      setConversationsLoading(false);
     }
   }, []);
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
+  useEffect(() => { api.getNotionContacts().then(setNotionContacts).catch(() => {}); }, []);
 
   useEffect(() => {
     if (!activeConversation) { setMessages([]); return; }
@@ -45,7 +50,7 @@ export default function App() {
     api.getMessages(activeConversation.id)
       .then(data => { setMessages(data); setMessagesCache(prev => ({ ...prev, [activeConversation.id]: data })); })
       .catch(console.error);
-  }, [activeConversation]);
+  }, [activeConversation?.id]);
 
   const handleWSMessage = useCallback((event) => {
     if (event.type === 'new_message') {
@@ -62,12 +67,18 @@ export default function App() {
       loadConversations();
     } else if (event.type === 'status_update') {
       const upd = event.data;
-      setMessages(prev => prev.map(m =>
-        m.id === upd.message_id ? { ...m, status: upd.status, error_message: upd.error_message } : m
-      ));
+      const applyUpdate = (m) =>
+        m.id === upd.message_id || (upd.wamid && m.wamid === upd.wamid)
+          ? { ...m, status: upd.status, error_message: upd.error_message }
+          : m;
+      setMessages(prev => prev.map(applyUpdate));
+      setMessagesCache(cache => {
+        const key = upd.conversation_id;
+        if (!cache[key]) return cache;
+        return { ...cache, [key]: cache[key].map(applyUpdate) };
+      });
       if (upd.status === 'failed') {
         if (upd.error_message) toast.error(upd.error_message, { duration: 8000 });
-        // Re-fetch from DB to ensure state matches persisted error
         setActiveConversation(prev => {
           if (prev && prev.id === upd.conversation_id) {
             api.getMessages(prev.id).then(data => {
@@ -83,14 +94,39 @@ export default function App() {
 
   const { connected } = useWebSocket(handleWSMessage);
 
+  const createNotionIfNew = useCallback((phone, name = '') => {
+    const norm = (p) => p.replace(/[\s\-+()]/g, '');
+    const cp = norm(phone);
+    const exists = notionContacts.some(nc => {
+      const np = norm(nc.phone);
+      return np === cp || np === cp.replace(/^91/, '') || '91' + np === cp;
+    });
+    if (!exists) {
+      api.createNotionContact(phone, name).catch(() => {});
+      setNotionContacts(prev => [...prev, { name: name || phone, phone, segments: ['WhatsApp Initiated'] }]);
+    }
+  }, [notionContacts]);
+
+  const optimisticConvUpdate = useCallback((convId, text, now) => {
+    setConversations(prev => {
+      const updated = prev.map(c => c.id === convId
+        ? { ...c, last_message: { content: text, direction: 'outbound' }, last_message_at: now }
+        : c);
+      const idx = updated.findIndex(c => c.id === convId);
+      return idx > 0 ? [updated[idx], ...updated.filter((_, i) => i !== idx)] : updated;
+    });
+  }, []);
+
   const handleSendMessage = async (text) => {
     if (!activeConversation) return;
     const tempId = `temp_${Date.now()}`;
+    const now = new Date().toISOString();
     setMessages(prev => [...prev, {
       id: tempId, conversation_id: activeConversation.id,
       direction: 'outbound', content: text, message_type: 'text',
-      status: 'pending', timestamp: new Date().toISOString(),
+      status: 'pending', timestamp: now,
     }]);
+    optimisticConvUpdate(activeConversation.id, text, now);
     try {
       const msg = await api.sendText(activeConversation.contact.phone, text);
       setMessages(prev => {
@@ -98,6 +134,7 @@ export default function App() {
         return without.some(m => m.id === msg.id) ? without : [...without, msg];
       });
       loadConversations();
+      createNotionIfNew(activeConversation.contact.phone, activeConversation.contact.name || '');
     } catch {
       setMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: 'failed', error_message: 'Failed to send' } : m));
       toast.error('Failed to send message');
@@ -106,13 +143,15 @@ export default function App() {
 
   const handleSendMedia = async (phone, mediaType, mediaUrl, caption = '') => {
     const tempId = `temp_${Date.now()}`;
+    const now = new Date().toISOString();
+    const preview = `[${mediaType === 'video' ? 'Video' : 'Image'} Attachment]\n${mediaUrl}\n${caption}`;
     if (activeConversation) {
       setMessages(prev => [...prev, {
         id: tempId, conversation_id: activeConversation.id,
-        direction: 'outbound',
-        content: `[${mediaType === 'video' ? 'Video' : 'Image'} Attachment]\n${mediaUrl}\n${caption}`,
-        message_type: mediaType, status: 'pending', timestamp: new Date().toISOString(),
+        direction: 'outbound', content: preview, message_type: mediaType,
+        status: 'pending', timestamp: now,
       }]);
+      optimisticConvUpdate(activeConversation.id, `📎 ${mediaType === 'video' ? 'Video' : 'Image'}`, now);
     }
     try {
       const msg = await api.sendMedia({ phone, media_type: mediaType, media_url: mediaUrl, caption });
@@ -156,6 +195,7 @@ export default function App() {
           setActiveConversation(conv);
           setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
         }
+        createNotionIfNew(data.phone, data.contact_name || '');
       }),
       { loading: 'Sending...', success: 'Queued ✓', error: e => e.message || 'Failed to send' }
     );
@@ -208,6 +248,19 @@ export default function App() {
     );
   }
 
+  const norm = (p) => p.replace(/[\s\-+()]/g, '');
+  const conversationsWithNames = notionContacts.length
+    ? conversations.map(conv => {
+        if (conv.contact.name) return conv;
+        const cp = norm(conv.contact.phone);
+        const match = notionContacts.find(nc => {
+          const np = norm(nc.phone);
+          return np === cp || np === cp.replace(/^91/, '') || '91' + np === cp;
+        });
+        return match?.name ? { ...conv, contact: { ...conv.contact, name: match.name } } : conv;
+      })
+    : conversations;
+
   return (
     <div className="flex-1 flex overflow-hidden w-full min-h-0">
       <Toaster position="top-right" toastOptions={TOAST_OPTS} />
@@ -216,8 +269,9 @@ export default function App() {
       <div className={`flex-col h-full bg-wa-dark shrink-0 w-full md:w-[380px] md:max-w-[380px] border-r border-wa-border ${activeConversation ? 'hidden md:flex' : 'flex'}`}>
         <div className="flex-1 overflow-y-auto">
           <Sidebar
-            conversations={conversations}
+            conversations={conversationsWithNames}
             activeId={activeConversation?.id}
+            loading={conversationsLoading}
             onSelect={conv => { setActiveConversation(conv); setShowAnalytics(false); }}
             onNewChat={() => { setTemplateInitialContact(null); setShowTemplatePicker(true); }}
           />
@@ -257,6 +311,7 @@ export default function App() {
           onUpdateContact={newName => {
             setActiveConversation(prev => ({ ...prev, contact: { ...prev.contact, name: newName } }));
             loadConversations();
+            if (activeConversation) createNotionIfNew(activeConversation.contact.phone, newName);
           }}
           onConversationUpdate={loadConversations}
         />

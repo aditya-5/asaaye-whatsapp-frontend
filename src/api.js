@@ -68,6 +68,8 @@ export const api = {
   // Notion
   getNotionContacts: (segment = '', search = '') =>
     request(`/api/notion/contacts?segment=${encodeURIComponent(segment)}&search=${encodeURIComponent(search)}`),
+  createNotionContact: (phone, name = '', segments = ['WhatsApp Initiated']) =>
+    request('/api/notion/contacts', { method: 'POST', body: JSON.stringify({ phone, name: name || phone, segments }) }),
   blastTemplate: (data) => request('/api/notion/blast', { method: 'POST', body: JSON.stringify(data) }),
 
   // Analytics

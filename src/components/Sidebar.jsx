@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, MessageSquarePlus, User, Bell } from 'lucide-react';
+import { Search, MessageSquarePlus, User, Bell, Loader } from 'lucide-react';
 
 export function getInitials(name) {
   if (!name) return null;
@@ -17,7 +17,7 @@ const STATUS_TABS = [
   { value: 'closed', label: 'Closed' },
 ];
 
-export default function Sidebar({ conversations, activeId, onSelect, onNewChat }) {
+export default function Sidebar({ conversations, activeId, loading, onSelect, onNewChat }) {
   const [search, setSearch] = useState('');
   const [statusTab, setStatusTab] = useState('');
   const [filtered, setFiltered] = useState(conversations);
@@ -83,7 +83,12 @@ export default function Sidebar({ conversations, activeId, onSelect, onNewChat }
 
       {/* Conversation List */}
       <div className="flex-1 overflow-y-auto">
-        {filtered.length === 0 && (
+        {loading && filtered.length === 0 && (
+          <div className="flex justify-center py-12">
+            <Loader size={22} className="text-wa-muted animate-spin" />
+          </div>
+        )}
+        {!loading && filtered.length === 0 && (
           <div className="text-center text-wa-muted text-sm py-12">No conversations</div>
         )}
         {filtered.map((conv) => {

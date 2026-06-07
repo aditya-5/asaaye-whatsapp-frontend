@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Send, User, Check, CheckCheck, Clock, AlertCircle, Trash2, ArrowLeft, Edit2,
-  StickyNote, Bell, BellRing, Paperclip, Zap, X, Plus, Loader
+  StickyNote, Bell, BellRing, Paperclip, Zap, X, Plus, Loader, ChevronDown
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api';
@@ -72,9 +72,20 @@ export default function ChatView({
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [mediaPreview, setMediaPreview] = useState(null); // {file, url, type, caption}
 
+  // Message context menu
+  const [activeMenuId, setActiveMenuId] = useState(null);
+  const longPressTimer = useRef(null);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    if (!activeMenuId) return;
+    const close = () => setActiveMenuId(null);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [activeMenuId]);
 
   useEffect(() => {
     api.getQuickReplies().then(setQuickReplies).catch(() => {});
@@ -343,37 +354,57 @@ export default function ChatView({
                 </div>
               )}
               <div className={`flex mb-1 animate-slide-in ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[65%] px-3 py-2 rounded-lg shadow-sm relative ${msg.direction === 'outbound' ? 'bg-wa-outgoing rounded-tr-none' : 'bg-wa-incoming rounded-tl-none'}`}>
-                  {msg.message_type === 'template' && (
-                    <span className="text-[10px] text-wa-green/70 font-medium block mb-1">📋 TEMPLATE</span>
-                  )}
-                  <p className="text-sm text-wa-text whitespace-pre-wrap break-words mt-1">
-                    {msg.content?.startsWith('[Image Attachment]') ? (
-                      <>
-                        <img src={msg.content.split('\n')[1]} alt="Attachment"
-                          className="w-full max-h-60 object-cover rounded mb-2 border border-wa-border/50 bg-black/20"
-                          onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }} />
-                        <div style={{display:'none'}} className="text-[11px] text-red-400 p-2 bg-red-900/10 border border-red-900/30 rounded mb-2">
-                          Image couldn't be loaded.
-                        </div>
-                        <span dangerouslySetInnerHTML={formatWhatsAppText(msg.content.split('\n').slice(2).join('\n'))} />
-                      </>
-                    ) : <span dangerouslySetInnerHTML={formatWhatsAppText(msg.content)} />}
-                  </p>
-                  <div className="flex items-center justify-end gap-1 mt-1 opacity-70">
-                    <span className="text-[11px] text-wa-muted">{formatTime(msg.timestamp)}</span>
-                    {msg.direction === 'outbound' && <StatusIcon status={msg.status} />}
-                    {onDeleteMessage && (
-                      <button onClick={() => onDeleteMessage(msg.id)}
-                        className={`ml-1 transition-colors ${msg.status === 'failed' ? 'text-red-500 hover:text-red-400' : 'text-wa-muted hover:text-red-400'}`}
-                        title={msg.status === 'failed' ? (msg.error_message || 'Failed') : 'Delete'}>
-                        <Trash2 size={14} />
-                      </button>
+                <div className="relative group/msg max-w-[65%]">
+                  <div className={`px-3 py-2 rounded-lg shadow-sm ${msg.direction === 'outbound' ? 'bg-wa-outgoing rounded-tr-none' : 'bg-wa-incoming rounded-tl-none'}`}>
+                    {msg.message_type === 'template' && (
+                      <span className="text-[10px] text-wa-green/70 font-medium block mb-1">📋 TEMPLATE</span>
+                    )}
+                    <p className="text-sm text-wa-text whitespace-pre-wrap break-words mt-1">
+                      {msg.content?.startsWith('[Image Attachment]') ? (
+                        <>
+                          <img src={msg.content.split('\n')[1]} alt="Attachment"
+                            className="w-full max-h-60 object-cover rounded mb-2 border border-wa-border/50 bg-black/20"
+                            onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }} />
+                          <div style={{display:'none'}} className="text-[11px] text-red-400 p-2 bg-red-900/10 border border-red-900/30 rounded mb-2">
+                            Image couldn't be loaded.
+                          </div>
+                          <span dangerouslySetInnerHTML={formatWhatsAppText(msg.content.split('\n').slice(2).join('\n'))} />
+                        </>
+                      ) : <span dangerouslySetInnerHTML={formatWhatsAppText(msg.content)} />}
+                    </p>
+                    <div className="flex items-center justify-end gap-1 mt-1 opacity-70">
+                      <span className="text-[11px] text-wa-muted">{formatTime(msg.timestamp)}</span>
+                      {msg.direction === 'outbound' && <StatusIcon status={msg.status} />}
+                    </div>
+                    {msg.status === 'failed' && msg.error_message && (
+                      <div className="text-[10px] text-red-400 mt-1.5 px-1 py-1 bg-black/20 rounded border border-red-900/40">
+                        Error: {msg.error_message}
+                      </div>
                     )}
                   </div>
-                  {msg.status === 'failed' && msg.error_message && (
-                    <div className="text-[10px] text-red-400 mt-1.5 px-1 py-1 bg-black/20 rounded border border-red-900/40">
-                      Error: {msg.error_message}
+                  {/* Hover dropdown trigger */}
+                  {onDeleteMessage && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setActiveMenuId(activeMenuId === msg.id ? null : msg.id); }}
+                      onTouchStart={() => { longPressTimer.current = setTimeout(() => setActiveMenuId(msg.id), 600); }}
+                      onTouchEnd={() => clearTimeout(longPressTimer.current)}
+                      className={`absolute top-1 ${msg.direction === 'outbound' ? 'left-0 -translate-x-full pl-1' : 'right-0 translate-x-full pr-1'} opacity-0 group-hover/msg:opacity-100 transition-opacity p-0.5 text-wa-muted hover:text-wa-text`}
+                    >
+                      <ChevronDown size={14} />
+                    </button>
+                  )}
+                  {/* Dropdown menu */}
+                  {activeMenuId === msg.id && (
+                    <div
+                      className={`absolute top-0 z-20 bg-wa-dark border border-wa-border rounded-lg shadow-xl min-w-[110px] ${msg.direction === 'outbound' ? 'right-full mr-6' : 'left-full ml-6'}`}
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <button
+                        onClick={() => { onDeleteMessage(msg.id); setActiveMenuId(null); }}
+                        className="flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:bg-wa-hover/80 w-full transition-colors rounded-lg"
+                      >
+                        <Trash2 size={12} /> Delete
+                      </button>
                     </div>
                   )}
                 </div>
