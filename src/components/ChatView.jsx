@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Send, User, Check, CheckCheck, Clock, AlertCircle, Trash2, ArrowLeft, ChevronLeft, Edit2,
-  StickyNote, Bell, BellRing, Paperclip, Zap, X, Plus, Loader, ChevronDown, Smile
+  StickyNote, Bell, BellRing, Paperclip, Zap, X, Plus, Loader, ChevronDown, Smile,
+  LayoutTemplate, CornerUpLeft
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api';
@@ -43,7 +44,7 @@ const formatWhatsAppText = (text) => {
 
 export default function ChatView({
   conversation, messages, onSendMessage, onSendMedia, onDeleteMessage, onDeleteChat,
-  onReactToMessage, onBack, onUpdateContact, onConversationUpdate
+  onReactToMessage, onOpenTemplate, onBack, onUpdateContact, onConversationUpdate
 }) {
   const [input, setInput] = useState('');
   const [showProfile, setShowProfile] = useState(false);
@@ -85,6 +86,10 @@ export default function ChatView({
   const [reactionPickerForMsgId, setReactionPickerForMsgId] = useState(null);
   const longPressTimer = useRef(null);
 
+  // Reply
+  const [replyingTo, setReplyingTo] = useState(null); // { id, content, direction, wamid }
+  const msgSwipeRef = useRef({ x: 0, y: 0 });
+
   useEffect(() => {
     if (!messagesEndRef.current || !messages.length) return;
     const isNewConv = conversation?.id !== prevConvIdRef.current;
@@ -115,19 +120,21 @@ export default function ChatView({
     setShowReminderModal(false);
     setShowQR(false);
     setShowProfile(false);
+    setReplyingTo(null);
     api.getNotes(conversation.id).then(setNotes).catch(() => {});
     api.getReminder(conversation.id).then(setReminder).catch(() => setReminder(null));
   }, [conversation?.id]);
 
   const handleSend = () => {
     if (!input.trim()) return;
-    onSendMessage(input.trim());
+    onSendMessage(input.trim(), replyingTo?.wamid || null);
     setInput('');
     setShowQR(false);
+    setReplyingTo(null);
   };
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
-    if (e.key === 'Escape') setShowQR(false);
+    if (e.key === 'Escape') { setShowQR(false); setReplyingTo(null); }
   };
 
   const formatTime = (ts) => ts ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
@@ -307,17 +314,19 @@ export default function ChatView({
               <p className="text-[15px] font-semibold text-wa-text truncate leading-snug">
                 {conversation.contact.name || conversation.contact.phone}
               </p>
-              <p className={`text-xs leading-snug truncate ${STATUS_COLOR[convStatus] || 'text-wa-muted'}`}>
-                {convStatus.charAt(0).toUpperCase() + convStatus.slice(1)}
-                {labels.length > 0 && (
-                  <span className="text-wa-muted"> · {labels.slice(0, 2).join(', ')}</span>
-                )}
+              <p className="text-xs text-wa-muted leading-snug truncate">
+                {labels.length > 0 ? labels.slice(0, 2).join(', ') : conversation.contact.phone}
               </p>
             </div>
           </button>
 
           {/* Action icons */}
           <div className="flex items-center gap-0.5 shrink-0">
+            <button onClick={() => onOpenTemplate?.()}
+              className="p-1.5 rounded-full hover:bg-wa-hover transition-colors text-wa-muted"
+              title="Send template">
+              <LayoutTemplate size={18} />
+            </button>
             <button onClick={() => setShowReminderModal(true)}
               className={`p-1.5 rounded-full hover:bg-wa-hover transition-colors ${reminder ? 'text-yellow-400' : 'text-wa-muted'}`}>
               {reminder ? <BellRing size={18} /> : <Bell size={18} />}
@@ -355,12 +364,26 @@ export default function ChatView({
                   <span className="bg-wa-incoming text-wa-muted text-xs px-3 py-1 rounded-lg shadow">{msgDate}</span>
                 </div>
               )}
-              {/* Per-message: long press on mobile triggers context menu */}
+              {/* Per-message: long press → context menu; right-swipe → reply */}
               <div
                 className={`flex ${hasReacts ? 'mb-3' : 'mb-1'} animate-slide-in select-none md:select-text ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
-                onTouchStart={() => { longPressTimer.current = setTimeout(() => setActiveMenuId(msg.id), 600); }}
-                onTouchMove={() => clearTimeout(longPressTimer.current)}
-                onTouchEnd={() => clearTimeout(longPressTimer.current)}
+                onTouchStart={(e) => {
+                  msgSwipeRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                  longPressTimer.current = setTimeout(() => setActiveMenuId(msg.id), 600);
+                }}
+                onTouchMove={(e) => {
+                  const dx = Math.abs(e.touches[0].clientX - msgSwipeRef.current.x);
+                  if (dx > 8) clearTimeout(longPressTimer.current);
+                }}
+                onTouchEnd={(e) => {
+                  clearTimeout(longPressTimer.current);
+                  const dx = e.changedTouches[0].clientX - msgSwipeRef.current.x;
+                  const dy = Math.abs(e.changedTouches[0].clientY - msgSwipeRef.current.y);
+                  if (dx > 60 && dy < 50) {
+                    setReplyingTo({ id: msg.id, content: msg.content, direction: msg.direction, wamid: msg.wamid });
+                    e.stopPropagation();
+                  }
+                }}
               >
                 <div className="relative group/msg max-w-[72%]">
                   {/* Desktop reaction picker — inline above bubble */}
@@ -382,6 +405,19 @@ export default function ChatView({
                   )}
 
                   <div className={`px-3 py-2 rounded-lg shadow-sm ${msg.direction === 'outbound' ? 'bg-wa-outgoing rounded-tr-none' : 'bg-wa-incoming rounded-tl-none'}`}>
+                    {msg.reply_to_wamid && (() => {
+                      const quoted = messages.find(m => m.wamid === msg.reply_to_wamid);
+                      return (
+                        <div className="border-l-[3px] border-wa-green/70 bg-black/20 rounded-sm px-2 py-1 mb-2">
+                          <p className="text-[10px] text-wa-green/80 font-medium mb-0.5">
+                            {quoted?.direction === 'inbound' ? (conversation.contact.name || conversation.contact.phone) : 'You'}
+                          </p>
+                          <p className="text-[11px] text-wa-muted truncate">
+                            {quoted ? (quoted.content?.substring(0, 80) || '📎 Media') : '↩ Replied to a message'}
+                          </p>
+                        </div>
+                      );
+                    })()}
                     {msg.message_type === 'template' && (
                       <span className="text-[10px] text-wa-green/70 font-medium block mb-1">📋 TEMPLATE</span>
                     )}
@@ -423,8 +459,15 @@ export default function ChatView({
                     </div>
                   )}
 
-                  {/* Desktop hover actions: Smile (reactions) + ChevronDown (delete) */}
+                  {/* Desktop hover actions: Reply + Smile (reactions) + ChevronDown (delete) */}
                   <div className={`hidden md:flex items-center gap-0.5 absolute top-1 ${msg.direction === 'outbound' ? 'left-0 -translate-x-full pr-1' : 'right-0 translate-x-full pl-1'} opacity-0 group-hover/msg:opacity-100 transition-opacity`}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setReplyingTo({ id: msg.id, content: msg.content, direction: msg.direction, wamid: msg.wamid }); }}
+                      className="p-0.5 text-wa-muted hover:text-wa-text rounded transition-colors"
+                      title="Reply"
+                    >
+                      <CornerUpLeft size={14} />
+                    </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setReactionPickerForMsgId(id => id === msg.id ? null : msg.id); setActiveMenuId(null); }}
                       className="p-0.5 text-wa-muted hover:text-wa-text rounded transition-colors"
@@ -472,6 +515,17 @@ export default function ChatView({
             <div className="absolute inset-0 bg-black/40" />
             <div className="relative bg-wa-dark border-t border-wa-border rounded-t-2xl pb-8 shadow-2xl animate-slide-in" onClick={e => e.stopPropagation()}>
               <div className="w-10 h-1 bg-wa-border rounded-full mx-auto mt-3 mb-1" />
+              {/* Reply */}
+              <button
+                onClick={() => {
+                  const m = messages.find(m => m.id === activeMenuId);
+                  if (m) setReplyingTo({ id: m.id, content: m.content, direction: m.direction, wamid: m.wamid });
+                  setActiveMenuId(null);
+                }}
+                className="flex items-center gap-3 px-6 py-3 text-wa-text hover:bg-wa-hover/50 w-full transition-colors text-base border-b border-wa-border"
+              >
+                <CornerUpLeft size={20} className="text-wa-muted" /> Reply
+              </button>
               {/* Reaction emoji row */}
               <div className="flex justify-around px-4 py-3 border-b border-wa-border">
                 {REACTION_EMOJIS.map(emoji => (
@@ -510,6 +564,20 @@ export default function ChatView({
             <Clock size={12} />
             24-hour window active ({remainingText})
           </div>
+          {replyingTo && (
+            <div className="bg-wa-input/60 border border-wa-border rounded-lg px-3 py-2 flex items-start gap-2">
+              <div className="w-[3px] self-stretch bg-wa-green rounded-full shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] text-wa-green font-semibold mb-0.5">
+                  {replyingTo.direction === 'outbound' ? 'You' : (conversation.contact.name || conversation.contact.phone)}
+                </p>
+                <p className="text-xs text-wa-muted truncate">{replyingTo.content?.substring(0, 80) || '📎 Media'}</p>
+              </div>
+              <button onClick={() => setReplyingTo(null)} className="text-wa-muted hover:text-wa-text shrink-0 p-0.5 -mt-0.5">
+                <X size={14} />
+              </button>
+            </div>
+          )}
           <div className="flex items-end gap-2">
             <input ref={fileInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleFileSelect} />
             <button

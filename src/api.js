@@ -32,8 +32,8 @@ export const api = {
   // Messages
   getMessages: (conversationId, limit = 50, offset = 0) =>
     request(`/api/conversations/${conversationId}/messages?limit=${limit}&offset=${offset}`),
-  sendText: (phone, message, contactName = null) =>
-    request('/api/messages/send', { method: 'POST', body: JSON.stringify({ phone, message, contact_name: contactName }) }),
+  sendText: (phone, message, contactName = null, replyToWamid = null) =>
+    request('/api/messages/send', { method: 'POST', body: JSON.stringify({ phone, message, contact_name: contactName, reply_to_wamid: replyToWamid }) }),
   sendTemplate: (data) => request('/api/messages/send-template', { method: 'POST', body: JSON.stringify(data) }),
   sendMedia: (data) => request('/api/messages/send-media', { method: 'POST', body: JSON.stringify(data) }),
   deleteMessage: (messageId) => request(`/api/messages/${messageId}`, { method: 'DELETE' }),

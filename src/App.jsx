@@ -156,18 +156,18 @@ export default function App() {
     });
   }, []);
 
-  const handleSendMessage = async (text) => {
+  const handleSendMessage = async (text, replyToWamid = null) => {
     if (!activeConversation) return;
     const tempId = `temp_${Date.now()}`;
     const now = new Date().toISOString();
     setMessages(prev => [...prev, {
       id: tempId, conversation_id: activeConversation.id,
       direction: 'outbound', content: text, message_type: 'text',
-      status: 'pending', timestamp: now,
+      status: 'pending', timestamp: now, reply_to_wamid: replyToWamid,
     }]);
     optimisticConvUpdate(activeConversation.id, text, now);
     try {
-      const msg = await api.sendText(activeConversation.contact.phone, text);
+      const msg = await api.sendText(activeConversation.contact.phone, text, null, replyToWamid);
       setMessages(prev => {
         const without = prev.filter(m => m.id !== tempId);
         return without.some(m => m.id === msg.id) ? without : [...without, msg];
@@ -363,6 +363,7 @@ export default function App() {
           onDeleteMessage={handleDeleteMessage}
           onDeleteChat={() => activeConversation && handleDeleteChat(activeConversation.id)}
           onReactToMessage={handleReactToMessage}
+          onOpenTemplate={() => { setTemplateInitialContact(activeConversation?.contact || null); setShowTemplatePicker(true); }}
           onBack={() => setActiveConversation(null)}
           onUpdateContact={newName => {
             setActiveConversation(prev => ({ ...prev, contact: { ...prev.contact, name: newName } }));
