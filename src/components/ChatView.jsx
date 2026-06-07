@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  Send, User, Check, CheckCheck, Clock, AlertCircle, Trash2, ArrowLeft, Edit2,
+  Send, User, Check, CheckCheck, Clock, AlertCircle, Trash2, ArrowLeft, ChevronLeft, Edit2,
   StickyNote, Bell, BellRing, Paperclip, Zap, X, Plus, Loader, ChevronDown
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
@@ -12,6 +12,8 @@ const STATUS_OPTIONS = [
   { value: 'pending', label: 'Pending', active: 'bg-yellow-400 text-black border-yellow-400', inactive: 'text-wa-muted border-wa-border' },
   { value: 'closed', label: 'Closed', active: 'bg-wa-muted text-wa-darker border-wa-muted', inactive: 'text-wa-muted border-wa-border' },
 ];
+
+const STATUS_COLOR = { open: 'text-wa-green', pending: 'text-yellow-400', closed: 'text-wa-muted' };
 
 function StatusIcon({ status }) {
   switch (status) {
@@ -42,10 +44,13 @@ export default function ChatView({
   onBack, onUpdateContact, onConversationUpdate
 }) {
   const [input, setInput] = useState('');
+  const [showProfile, setShowProfile] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState('');
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const swipeStartX = useRef(0);
+  const swipeStartY = useRef(0);
 
   // Status & Labels
   const [convStatus, setConvStatus] = useState('open');
@@ -70,7 +75,7 @@ export default function ChatView({
 
   // Media
   const [uploadingMedia, setUploadingMedia] = useState(false);
-  const [mediaPreview, setMediaPreview] = useState(null); // {file, url, type, caption}
+  const [mediaPreview, setMediaPreview] = useState(null);
 
   // Message context menu
   const [activeMenuId, setActiveMenuId] = useState(null);
@@ -102,6 +107,7 @@ export default function ChatView({
     setReminder(null);
     setShowReminderModal(false);
     setShowQR(false);
+    setShowProfile(false);
     api.getNotes(conversation.id).then(setNotes).catch(() => {});
     api.getReminder(conversation.id).then(setReminder).catch(() => setReminder(null));
   }, [conversation?.id]);
@@ -127,7 +133,6 @@ export default function ChatView({
     return d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
   };
 
-  // Status
   const handleStatusChange = async (newStatus) => {
     const prev = convStatus;
     setConvStatus(newStatus);
@@ -140,7 +145,6 @@ export default function ChatView({
     }
   };
 
-  // Labels
   const handleAddLabel = async () => {
     const lbl = labelInput.trim();
     if (!lbl || labels.includes(lbl)) { setAddingLabel(false); setLabelInput(''); return; }
@@ -156,7 +160,6 @@ export default function ChatView({
     catch { toast.error('Failed to update labels'); setLabels(labels); }
   };
 
-  // Notes
   const handleAddNote = async () => {
     if (!noteInput.trim()) return;
     try {
@@ -171,7 +174,6 @@ export default function ChatView({
     } catch { toast.error('Failed to delete note'); }
   };
 
-  // Reminder
   const handleSetReminder = async () => {
     if (!reminderDate) return;
     try {
@@ -188,7 +190,6 @@ export default function ChatView({
     } catch { toast.error('Failed to clear reminder'); }
   };
 
-  // Media upload
   const handleFileSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -212,7 +213,16 @@ export default function ChatView({
     finally { setUploadingMedia(false); }
   };
 
-  // Quick replies filtering
+  const handleSaveName = () => {
+    if (editNameValue.trim() && editNameValue !== conversation.contact.name) {
+      api.updateContactName(conversation.id, editNameValue.trim()).then(() => {
+        onUpdateContact?.(editNameValue.trim());
+        setIsEditingName(false);
+        toast.success('Contact saved');
+      });
+    } else setIsEditingName(false);
+  };
+
   const qrFilter = input.startsWith('/') ? input.slice(1).toLowerCase() : '';
   const filteredQR = quickReplies.filter(qr =>
     !input || !input.startsWith('/') || qr.title.toLowerCase().includes(qrFilter) || qr.body.toLowerCase().includes(qrFilter)
@@ -232,7 +242,6 @@ export default function ChatView({
     );
   }
 
-  // 24-hour window
   let windowOpen = false, remainingText = '';
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].direction === 'inbound') {
@@ -248,98 +257,80 @@ export default function ChatView({
   }
 
   let lastDate = '';
+  const initials = getInitials(conversation.contact.name);
 
   return (
-    <div className="relative flex-1 flex flex-col bg-wa-chat h-full overflow-hidden">
-      {/* Header */}
+    <div
+      className="relative flex-1 flex flex-col bg-wa-chat h-full overflow-hidden"
+      onTouchStart={(e) => {
+        swipeStartX.current = e.touches[0].clientX;
+        swipeStartY.current = e.touches[0].clientY;
+      }}
+      onTouchEnd={(e) => {
+        const dx = e.changedTouches[0].clientX - swipeStartX.current;
+        const dy = Math.abs(e.changedTouches[0].clientY - swipeStartY.current);
+        if (dx > 80 && dy < 60) {
+          if (showProfile) setShowProfile(false);
+          else onBack?.();
+        }
+      }}
+    >
+      {/* ── Header ─────────────────────────────────────── */}
       <div className="bg-wa-dark border-b border-wa-border z-10 shrink-0">
-        {/* Top row: back | avatar | name | actions */}
-        <div className="px-3 pt-2.5 pb-1 flex items-center gap-2">
+        <div className="px-3 py-2.5 flex items-center gap-2">
+          {/* Back button — ChevronLeft, mobile only */}
           {onBack && (
-            <button onClick={onBack} className="md:hidden p-1.5 -ml-1 rounded-full hover:bg-wa-hover text-wa-muted shrink-0">
-              <ArrowLeft size={20} />
+            <button
+              onClick={onBack}
+              className="md:hidden p-1 -ml-1.5 rounded-full hover:bg-wa-hover text-wa-text shrink-0 active:bg-wa-hover"
+            >
+              <ChevronLeft size={26} strokeWidth={2.5} />
             </button>
           )}
-          <div className="w-9 h-9 shrink-0 rounded-full bg-wa-input flex items-center justify-center text-wa-green font-medium text-[14px] tracking-wide border border-wa-border/50 shadow-sm">
-            {(() => { const i = getInitials(conversation.contact.name); return i ? i : <User size={18} className="text-wa-muted opacity-80" />; })()}
-          </div>
-          <div className="flex-1 min-w-0">
-            {isEditingName ? (
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                if (editNameValue.trim() && editNameValue !== conversation.contact.name) {
-                  api.updateContactName(conversation.id, editNameValue.trim()).then(() => {
-                    onUpdateContact?.(editNameValue.trim()); setIsEditingName(false); toast.success('Contact saved');
-                  });
-                } else setIsEditingName(false);
-              }} className="flex items-center gap-1">
-                <input type="text" value={editNameValue} onChange={e => setEditNameValue(e.target.value)}
-                  className="bg-wa-input rounded px-2 py-0.5 outline-none focus:ring-1 focus:ring-wa-green/50 text-wa-text border border-wa-border text-sm w-full max-w-[160px]"
-                  autoFocus onBlur={() => setTimeout(() => setIsEditingName(false), 200)} />
-                <button type="submit" className="text-wa-green hover:opacity-80 p-1"><Check size={14} /></button>
-              </form>
-            ) : (
-              <button onClick={() => { setEditNameValue(conversation.contact.name || ''); setIsEditingName(true); }}
-                className="flex items-center gap-1.5 text-left w-full group">
-                <span className="text-[15px] font-medium text-wa-text truncate">
-                  {conversation.contact.name || 'Unsaved Contact'}
-                </span>
-                <Edit2 size={11} className="text-wa-muted group-hover:text-wa-green transition-colors shrink-0" />
-              </button>
-            )}
-          </div>
-          {/* Icon actions */}
+
+          {/* Avatar + name — tappable → opens profile */}
+          <button
+            onClick={() => setShowProfile(true)}
+            className="flex items-center gap-2.5 flex-1 min-w-0 text-left active:opacity-70 transition-opacity"
+          >
+            <div className="w-10 h-10 shrink-0 rounded-full bg-wa-input flex items-center justify-center text-wa-green font-medium text-[15px] tracking-wide border border-wa-border/50 shadow-sm">
+              {initials ? initials : <User size={20} className="text-wa-muted opacity-80" />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[15px] font-semibold text-wa-text truncate leading-snug">
+                {conversation.contact.name || conversation.contact.phone}
+              </p>
+              <p className={`text-xs leading-snug truncate ${STATUS_COLOR[convStatus] || 'text-wa-muted'}`}>
+                {convStatus.charAt(0).toUpperCase() + convStatus.slice(1)}
+                {labels.length > 0 && (
+                  <span className="text-wa-muted"> · {labels.slice(0, 2).join(', ')}</span>
+                )}
+              </p>
+            </div>
+          </button>
+
+          {/* Action icons */}
           <div className="flex items-center gap-0.5 shrink-0">
             <button onClick={() => setShowReminderModal(true)}
               className={`p-1.5 rounded-full hover:bg-wa-hover transition-colors ${reminder ? 'text-yellow-400' : 'text-wa-muted'}`}>
-              {reminder ? <BellRing size={17} /> : <Bell size={17} />}
+              {reminder ? <BellRing size={18} /> : <Bell size={18} />}
             </button>
             <button onClick={() => setNotesOpen(!notesOpen)}
               className={`p-1.5 rounded-full hover:bg-wa-hover transition-colors ${notesOpen ? 'text-wa-green' : 'text-wa-muted'}`}>
-              <StickyNote size={17} />
+              <StickyNote size={18} />
             </button>
             {onDeleteChat && (
               <button onClick={onDeleteChat} className="p-1.5 rounded-full hover:bg-wa-hover text-wa-muted hover:text-red-400 transition-all">
-                <Trash2 size={17} />
+                <Trash2 size={18} />
               </button>
             )}
           </div>
         </div>
-
-        {/* Sub-row: phone + status pills + labels */}
-        <div className="px-3 pb-2 flex items-center gap-1.5 flex-wrap">
-          <span className="text-[11px] text-wa-muted">{conversation.contact.phone}</span>
-          <span className="text-wa-border">·</span>
-          {/* Status pills */}
-          {STATUS_OPTIONS.map(s => (
-            <button key={s.value} onClick={() => handleStatusChange(s.value)}
-              className={`text-[10px] px-2 py-0.5 rounded-full border font-medium transition-colors ${convStatus === s.value ? s.active : s.inactive}`}>
-              {s.label}
-            </button>
-          ))}
-          {labels.length > 0 && <span className="text-wa-border">·</span>}
-          {labels.map(lbl => (
-            <span key={lbl} className="flex items-center gap-0.5 text-[10px] bg-wa-green/15 text-wa-green border border-wa-green/20 px-1.5 py-0.5 rounded-full">
-              {lbl}
-              <button onClick={() => handleRemoveLabel(lbl)} className="hover:text-red-400 ml-0.5"><X size={8} /></button>
-            </span>
-          ))}
-          {addingLabel ? (
-            <input type="text" value={labelInput} onChange={e => setLabelInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleAddLabel(); if (e.key === 'Escape') { setAddingLabel(false); setLabelInput(''); } }}
-              onBlur={handleAddLabel}
-              className="text-[10px] bg-wa-input border border-wa-green/30 rounded-full px-2 py-0.5 outline-none text-wa-text w-20"
-              placeholder="Add label..." autoFocus />
-          ) : (
-            <button onClick={() => setAddingLabel(true)} className="text-[10px] text-wa-muted hover:text-wa-green transition-colors p-0.5">
-              <Plus size={10} />
-            </button>
-          )}
-        </div>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 md:px-16 py-4"
+      {/* ── Messages ───────────────────────────────────── */}
+      <div
+        className="flex-1 overflow-y-auto px-4 md:px-16 py-4"
         style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.02\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}
       >
         {messages.map((msg) => {
@@ -353,8 +344,14 @@ export default function ChatView({
                   <span className="bg-wa-incoming text-wa-muted text-xs px-3 py-1 rounded-lg shadow">{msgDate}</span>
                 </div>
               )}
-              <div className={`flex mb-1 animate-slide-in ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
-                <div className="relative group/msg max-w-[65%]">
+              {/* Per-message: long press on mobile triggers context menu */}
+              <div
+                className={`flex mb-1 animate-slide-in ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
+                onTouchStart={() => { longPressTimer.current = setTimeout(() => setActiveMenuId(msg.id), 600); }}
+                onTouchMove={() => clearTimeout(longPressTimer.current)}
+                onTouchEnd={() => clearTimeout(longPressTimer.current)}
+              >
+                <div className="relative group/msg max-w-[72%]">
                   <div className={`px-3 py-2 rounded-lg shadow-sm ${msg.direction === 'outbound' ? 'bg-wa-outgoing rounded-tr-none' : 'bg-wa-incoming rounded-tl-none'}`}>
                     {msg.message_type === 'template' && (
                       <span className="text-[10px] text-wa-green/70 font-medium block mb-1">📋 TEMPLATE</span>
@@ -382,21 +379,21 @@ export default function ChatView({
                       </div>
                     )}
                   </div>
-                  {/* Hover dropdown trigger */}
+
+                  {/* Desktop-only hover arrow */}
                   {onDeleteMessage && (
                     <button
                       onClick={(e) => { e.stopPropagation(); setActiveMenuId(activeMenuId === msg.id ? null : msg.id); }}
-                      onTouchStart={() => { longPressTimer.current = setTimeout(() => setActiveMenuId(msg.id), 600); }}
-                      onTouchEnd={() => clearTimeout(longPressTimer.current)}
-                      className={`absolute top-1 ${msg.direction === 'outbound' ? 'left-0 -translate-x-full pl-1' : 'right-0 translate-x-full pr-1'} opacity-0 group-hover/msg:opacity-100 transition-opacity p-0.5 text-wa-muted hover:text-wa-text`}
+                      className={`hidden md:block absolute top-1 ${msg.direction === 'outbound' ? 'left-0 -translate-x-full pl-1' : 'right-0 translate-x-full pr-1'} opacity-0 group-hover/msg:opacity-100 transition-opacity p-0.5 text-wa-muted hover:text-wa-text`}
                     >
                       <ChevronDown size={14} />
                     </button>
                   )}
-                  {/* Dropdown menu */}
+
+                  {/* Desktop dropdown */}
                   {activeMenuId === msg.id && (
                     <div
-                      className={`absolute top-0 z-20 bg-wa-dark border border-wa-border rounded-lg shadow-xl min-w-[110px] ${msg.direction === 'outbound' ? 'right-full mr-6' : 'left-full ml-6'}`}
+                      className={`hidden md:block absolute top-0 z-20 bg-wa-dark border border-wa-border rounded-lg shadow-xl min-w-[110px] ${msg.direction === 'outbound' ? 'right-full mr-6' : 'left-full ml-6'}`}
                       onClick={e => e.stopPropagation()}
                     >
                       <button
@@ -415,7 +412,23 @@ export default function ChatView({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
+      {/* Mobile bottom-sheet context menu */}
+      {activeMenuId && (
+        <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setActiveMenuId(null)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div className="relative bg-wa-dark border-t border-wa-border rounded-t-2xl pb-8 shadow-2xl animate-slide-in" onClick={e => e.stopPropagation()}>
+            <div className="w-10 h-1 bg-wa-border rounded-full mx-auto mt-3 mb-1" />
+            <button
+              onClick={() => { onDeleteMessage(activeMenuId); setActiveMenuId(null); }}
+              className="flex items-center gap-3 px-6 py-4 text-red-400 hover:bg-wa-hover/50 w-full transition-colors text-base font-medium"
+            >
+              <Trash2 size={20} /> Delete message
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Input ──────────────────────────────────────── */}
       {!windowOpen ? (
         <div className="px-4 py-3 bg-wa-dark border-t border-wa-border">
           <div className="bg-wa-input/50 border border-wa-border px-4 py-3 rounded-lg flex items-start gap-3 w-full">
@@ -433,7 +446,6 @@ export default function ChatView({
             24-hour window active ({remainingText})
           </div>
           <div className="flex items-end gap-2">
-            {/* Media upload */}
             <input ref={fileInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleFileSelect} />
             <button
               onClick={() => fileInputRef.current?.click()}
@@ -444,7 +456,6 @@ export default function ChatView({
               {uploadingMedia ? <Loader size={20} className="animate-spin text-wa-green" /> : <Paperclip size={20} />}
             </button>
 
-            {/* Quick replies + textarea */}
             <div className="relative flex-1">
               {(showQR || input.startsWith('/')) && filteredQR.length > 0 && (
                 <div className="absolute bottom-full left-0 right-0 mb-2 bg-wa-dark border border-wa-border rounded-xl shadow-xl max-h-48 overflow-y-auto z-20">
@@ -452,11 +463,8 @@ export default function ChatView({
                     Quick Replies
                   </div>
                   {filteredQR.map(qr => (
-                    <button
-                      key={qr.id}
-                      onClick={() => { setInput(qr.body); setShowQR(false); }}
-                      className="w-full text-left px-3 py-2 hover:bg-wa-hover transition-colors border-b border-wa-border/50 last:border-b-0"
-                    >
+                    <button key={qr.id} onClick={() => { setInput(qr.body); setShowQR(false); }}
+                      className="w-full text-left px-3 py-2 hover:bg-wa-hover transition-colors border-b border-wa-border/50 last:border-b-0">
                       <div className="text-xs font-medium text-wa-green">{qr.title}</div>
                       <div className="text-xs text-wa-muted truncate mt-0.5">{qr.body}</div>
                     </button>
@@ -474,27 +482,21 @@ export default function ChatView({
               />
             </div>
 
-            {/* Quick replies toggle */}
-            <button
-              onClick={() => setShowQR(!showQR)}
+            <button onClick={() => setShowQR(!showQR)}
               className={`p-2 rounded-full hover:bg-wa-hover transition-colors shrink-0 ${showQR ? 'text-wa-green' : 'text-wa-muted'}`}
-              title="Quick replies"
-            >
+              title="Quick replies">
               <Zap size={20} />
             </button>
 
-            <button
-              onClick={handleSend}
-              disabled={!input.trim()}
-              className="p-2.5 rounded-full bg-wa-green hover:bg-wa-green/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0"
-            >
+            <button onClick={handleSend} disabled={!input.trim()}
+              className="p-2.5 rounded-full bg-wa-green hover:bg-wa-green/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0">
               <Send size={18} className="text-wa-darker" />
             </button>
           </div>
         </div>
       )}
 
-      {/* Media Preview Modal */}
+      {/* ── Media Preview Modal ────────────────────────── */}
       {mediaPreview && (
         <div className="absolute inset-0 bg-black/80 z-30 flex items-center justify-center p-4">
           <div className="bg-wa-dark border border-wa-border rounded-xl w-full max-w-sm shadow-2xl overflow-hidden">
@@ -505,34 +507,115 @@ export default function ChatView({
               </button>
             </div>
             <div className="p-4 flex flex-col gap-3">
-              {mediaPreview.type === 'image' ? (
-                <img src={mediaPreview.url} alt="Preview" className="w-full max-h-64 object-contain rounded-lg bg-black/30" />
-              ) : (
-                <video src={mediaPreview.url} className="w-full max-h-64 rounded-lg bg-black/30" controls />
-              )}
-              <input
-                type="text"
-                value={mediaPreview.caption}
+              {mediaPreview.type === 'image'
+                ? <img src={mediaPreview.url} alt="Preview" className="w-full max-h-64 object-contain rounded-lg bg-black/30" />
+                : <video src={mediaPreview.url} className="w-full max-h-64 rounded-lg bg-black/30" controls />}
+              <input type="text" value={mediaPreview.caption}
                 onChange={e => setMediaPreview(prev => ({ ...prev, caption: e.target.value }))}
                 onKeyDown={e => {
                   if (e.key === 'Enter') handleMediaSend();
                   if (e.key === 'Escape') { URL.revokeObjectURL(mediaPreview.url); setMediaPreview(null); }
                 }}
-                placeholder="Add a caption (optional)..."
-                autoFocus
+                placeholder="Add a caption (optional)..." autoFocus
                 className="w-full bg-wa-input border border-wa-border text-wa-text text-sm rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-wa-green/30 placeholder:text-wa-muted"
               />
               <button onClick={handleMediaSend}
                 className="w-full bg-wa-green text-wa-darker py-2 rounded-lg text-sm font-semibold hover:bg-wa-green/90 transition-colors flex items-center justify-center gap-2">
-                <Send size={15} />
-                Send
+                <Send size={15} /> Send
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Notes Panel */}
+      {/* ── Profile Panel ──────────────────────────────── */}
+      {showProfile && (
+        <div className="absolute inset-0 z-30 bg-wa-dark flex flex-col animate-slide-in-right">
+          {/* Profile header */}
+          <div className="bg-wa-dark border-b border-wa-border px-3 py-2.5 flex items-center gap-2 shrink-0">
+            <button onClick={() => setShowProfile(false)} className="p-1 -ml-1 rounded-full hover:bg-wa-hover text-wa-text active:bg-wa-hover">
+              <ChevronLeft size={26} strokeWidth={2.5} />
+            </button>
+            <span className="text-[15px] font-semibold text-wa-text">Contact Info</span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            {/* Avatar + name */}
+            <div className="flex flex-col items-center pt-8 pb-6 px-6 border-b border-wa-border">
+              <div className="w-20 h-20 rounded-full bg-wa-input flex items-center justify-center text-wa-green font-medium text-3xl border border-wa-border/50 shadow mb-3">
+                {initials ? initials : <User size={36} className="text-wa-muted opacity-80" />}
+              </div>
+              {isEditingName ? (
+                <form onSubmit={(e) => { e.preventDefault(); handleSaveName(); }} className="flex items-center gap-2 mt-1">
+                  <input type="text" value={editNameValue} onChange={e => setEditNameValue(e.target.value)}
+                    className="bg-wa-input rounded-lg px-3 py-1.5 outline-none focus:ring-1 focus:ring-wa-green/50 text-wa-text border border-wa-border text-base w-48"
+                    autoFocus onBlur={() => setTimeout(handleSaveName, 150)} />
+                  <button type="submit" className="text-wa-green p-1"><Check size={18} /></button>
+                </form>
+              ) : (
+                <button onClick={() => { setEditNameValue(conversation.contact.name || ''); setIsEditingName(true); }}
+                  className="flex items-center gap-2 mt-1 group">
+                  <span className="text-xl font-semibold text-wa-text">
+                    {conversation.contact.name || 'Unsaved Contact'}
+                  </span>
+                  <Edit2 size={14} className="text-wa-muted group-hover:text-wa-green transition-colors" />
+                </button>
+              )}
+              <p className="text-sm text-wa-muted mt-2">{conversation.contact.phone}</p>
+            </div>
+
+            {/* Status */}
+            <div className="px-5 py-5 border-b border-wa-border">
+              <p className="text-xs text-wa-muted font-semibold uppercase tracking-wider mb-3">Conversation Status</p>
+              <div className="flex gap-2 flex-wrap">
+                {STATUS_OPTIONS.map(s => (
+                  <button key={s.value} onClick={() => handleStatusChange(s.value)}
+                    className={`text-sm px-4 py-1.5 rounded-full border font-medium transition-colors ${convStatus === s.value ? s.active : s.inactive}`}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Labels */}
+            <div className="px-5 py-5 border-b border-wa-border">
+              <p className="text-xs text-wa-muted font-semibold uppercase tracking-wider mb-3">Labels</p>
+              <div className="flex flex-wrap gap-2">
+                {labels.map(lbl => (
+                  <span key={lbl} className="flex items-center gap-1 text-sm bg-wa-green/15 text-wa-green border border-wa-green/20 px-2.5 py-1 rounded-full">
+                    {lbl}
+                    <button onClick={() => handleRemoveLabel(lbl)} className="hover:text-red-400 ml-0.5"><X size={10} /></button>
+                  </span>
+                ))}
+                {addingLabel ? (
+                  <input type="text" value={labelInput} onChange={e => setLabelInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleAddLabel(); if (e.key === 'Escape') { setAddingLabel(false); setLabelInput(''); } }}
+                    onBlur={handleAddLabel}
+                    className="text-sm bg-wa-input border border-wa-green/30 rounded-full px-3 py-1 outline-none text-wa-text w-28"
+                    placeholder="Add label..." autoFocus />
+                ) : (
+                  <button onClick={() => setAddingLabel(true)}
+                    className="flex items-center gap-1.5 text-sm text-wa-muted hover:text-wa-green transition-colors border border-wa-border rounded-full px-3 py-1">
+                    <Plus size={13} /> Add label
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Danger zone */}
+            {onDeleteChat && (
+              <div className="px-5 py-5">
+                <button onClick={() => { setShowProfile(false); onDeleteChat(); }}
+                  className="flex items-center gap-2 text-red-400 hover:text-red-300 text-sm transition-colors">
+                  <Trash2 size={16} /> Delete conversation
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Notes Panel ────────────────────────────────── */}
       <div className={`absolute inset-y-0 right-0 w-72 bg-wa-dark border-l border-wa-border flex flex-col z-10 transition-transform duration-200 shadow-2xl ${notesOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="px-4 py-3 border-b border-wa-border flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
@@ -557,12 +640,9 @@ export default function ChatView({
           ))}
         </div>
         <div className="p-3 border-t border-wa-border shrink-0">
-          <textarea
-            value={noteInput}
-            onChange={e => setNoteInput(e.target.value)}
+          <textarea value={noteInput} onChange={e => setNoteInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) handleAddNote(); }}
-            placeholder="Add a note... (Ctrl+Enter)"
-            rows={2}
+            placeholder="Add a note... (Ctrl+Enter)" rows={2}
             className="w-full bg-wa-input text-wa-text text-xs rounded-lg px-3 py-2 outline-none resize-none placeholder:text-wa-muted focus:ring-1 focus:ring-wa-green/30"
           />
           <button onClick={handleAddNote} disabled={!noteInput.trim()}
@@ -572,7 +652,7 @@ export default function ChatView({
         </div>
       </div>
 
-      {/* Reminder Modal */}
+      {/* ── Reminder Modal ─────────────────────────────── */}
       {showReminderModal && (
         <div className="absolute inset-0 bg-black/60 z-20 flex items-center justify-center p-4">
           <div className="bg-wa-dark border border-wa-border rounded-xl w-full max-w-sm shadow-2xl">
@@ -593,15 +673,13 @@ export default function ChatView({
               <div>
                 <label className="text-xs text-wa-muted block mb-1">Remind at</label>
                 <input type="datetime-local" value={reminderDate} onChange={e => setReminderDate(e.target.value)}
-                  className="w-full bg-wa-input border border-wa-border text-wa-text text-sm rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-wa-green/30"
-                />
+                  className="w-full bg-wa-input border border-wa-border text-wa-text text-sm rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-wa-green/30" />
               </div>
               <div>
                 <label className="text-xs text-wa-muted block mb-1">Note (optional)</label>
                 <input type="text" value={reminderNote} onChange={e => setReminderNote(e.target.value)}
                   placeholder="e.g. Follow up on order"
-                  className="w-full bg-wa-input border border-wa-border text-wa-text text-sm rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-wa-green/30"
-                />
+                  className="w-full bg-wa-input border border-wa-border text-wa-text text-sm rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-wa-green/30" />
               </div>
               <div className="flex gap-2">
                 <button onClick={handleSetReminder} disabled={!reminderDate}
