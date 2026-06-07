@@ -351,7 +351,7 @@ export default function ChatView({
               )}
               {/* Per-message: long press on mobile triggers context menu */}
               <div
-                className={`flex ${hasReacts ? 'mb-3' : 'mb-1'} animate-slide-in ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
+                className={`flex ${hasReacts ? 'mb-3' : 'mb-1'} animate-slide-in select-none md:select-text ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
                 onTouchStart={() => { longPressTimer.current = setTimeout(() => setActiveMenuId(msg.id), 600); }}
                 onTouchMove={() => clearTimeout(longPressTimer.current)}
                 onTouchEnd={() => clearTimeout(longPressTimer.current)}
