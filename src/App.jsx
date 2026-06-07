@@ -31,9 +31,11 @@ export default function App() {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [notionContacts, setNotionContacts] = useState([]);
 
-  // Inline ref update: always current on every render, no useEffect delay
+  // Inline ref updates: always current on every render, no useEffect delay
   const activeConvRef = useRef(null);
   activeConvRef.current = activeConversation;
+  const messagesCacheRef = useRef({});
+  messagesCacheRef.current = messagesCache;
 
   const loadConversations = useCallback(async () => {
     try {
@@ -124,6 +126,24 @@ export default function App() {
         if (!cache[key]) return cache;
         return { ...cache, [key]: cache[key].map(applyReact) };
       });
+      // Update sidebar with reaction preview
+      const entries = Object.entries(upd.reactions || {});
+      if (entries.length > 0) {
+        const msgs = messagesCacheRef.current[upd.conversation_id] || [];
+        const original = msgs.find(m => m.id === upd.message_id);
+        if (original) {
+          const [emoji, dir] = entries[entries.length - 1];
+          const msgPreview = (original.content || 'a message')
+            .replace(/\[.*?\]/g, '📎').substring(0, 30);
+          const preview = dir === 'outbound'
+            ? `You reacted ${emoji} to "${msgPreview}"`
+            : `Reacted ${emoji} to "${msgPreview}"`;
+          setConversations(prev => prev.map(c => c.id === upd.conversation_id
+            ? { ...c, last_message: { content: preview, direction: dir } }
+            : c
+          ));
+        }
+      }
     } else if (event.type === 'status_update') {
       const upd = event.data;
       const applyUpdate = (m) =>

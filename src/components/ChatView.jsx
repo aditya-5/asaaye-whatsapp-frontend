@@ -372,25 +372,60 @@ export default function ChatView({
               {/* Per-message: long press → context menu; right-swipe → reply */}
               <div
                 className={`flex ${hasReacts ? 'mb-3' : 'mb-1'} animate-slide-in select-none md:select-text ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
+                style={{ touchAction: 'pan-y' }}
                 onTouchStart={(e) => {
-                  msgSwipeRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                  const bubble = e.currentTarget.querySelector('[data-bubble]');
+                  const icon = e.currentTarget.querySelector('[data-swipe-icon]');
+                  msgSwipeRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, bubble, icon, triggered: false };
                   longPressTimer.current = setTimeout(() => setActiveMenuId(msg.id), 600);
                 }}
                 onTouchMove={(e) => {
-                  const dx = Math.abs(e.touches[0].clientX - msgSwipeRef.current.x);
-                  if (dx > 8) clearTimeout(longPressTimer.current);
+                  const dx = e.touches[0].clientX - msgSwipeRef.current.x;
+                  const dy = Math.abs(e.touches[0].clientY - msgSwipeRef.current.y);
+                  if (Math.abs(dx) > 8) clearTimeout(longPressTimer.current);
+                  if (dx > 0 && dy < 40) {
+                    const offset = Math.min(dx, 80);
+                    if (msgSwipeRef.current.bubble) {
+                      msgSwipeRef.current.bubble.style.transform = `translateX(${offset}px)`;
+                      msgSwipeRef.current.bubble.style.transition = 'none';
+                    }
+                    if (msgSwipeRef.current.icon) {
+                      msgSwipeRef.current.icon.style.opacity = Math.min(offset / 50, 1);
+                      msgSwipeRef.current.icon.style.transform = `translateY(-50%) scale(${0.6 + 0.4 * Math.min(offset / 60, 1)})`;
+                    }
+                    if (offset >= 60 && !msgSwipeRef.current.triggered) {
+                      msgSwipeRef.current.triggered = true;
+                    }
+                  }
                 }}
                 onTouchEnd={(e) => {
                   clearTimeout(longPressTimer.current);
                   const dx = e.changedTouches[0].clientX - msgSwipeRef.current.x;
                   const dy = Math.abs(e.changedTouches[0].clientY - msgSwipeRef.current.y);
+                  if (msgSwipeRef.current.bubble) {
+                    msgSwipeRef.current.bubble.style.transition = 'transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                    msgSwipeRef.current.bubble.style.transform = 'translateX(0)';
+                  }
+                  if (msgSwipeRef.current.icon) {
+                    msgSwipeRef.current.icon.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+                    msgSwipeRef.current.icon.style.opacity = '0';
+                    msgSwipeRef.current.icon.style.transform = 'translateY(-50%) scale(0.6)';
+                  }
                   if (dx > 60 && dy < 50) {
                     setReplyingTo({ id: msg.id, content: msg.content, direction: msg.direction, wamid: msg.wamid });
                     e.stopPropagation();
                   }
                 }}
               >
-                <div className="relative group/msg max-w-[72%]">
+                <div className="relative group/msg max-w-[72%]" data-bubble data-wamid={msg.wamid}>
+                  {/* Swipe-to-reply hint icon — appears from left as bubble slides right */}
+                  <div data-swipe-icon
+                    className="absolute right-full top-1/2 pr-2 pointer-events-none"
+                    style={{ opacity: 0, transform: 'translateY(-50%) scale(0.6)' }}>
+                    <div className="w-7 h-7 rounded-full bg-wa-input/90 border border-wa-border flex items-center justify-center shadow">
+                      <CornerUpLeft size={13} className="text-wa-muted" />
+                    </div>
+                  </div>
                   {/* Desktop reaction picker — inline above bubble */}
                   {reactionPickerForMsgId === msg.id && (
                     <div
@@ -413,7 +448,19 @@ export default function ChatView({
                     {msg.reply_to_wamid && (() => {
                       const quoted = messages.find(m => m.wamid === msg.reply_to_wamid);
                       return (
-                        <div className="border-l-[3px] border-wa-green/70 bg-black/20 rounded-sm px-2 py-1 mb-2">
+                        <div
+                          className="border-l-[3px] border-wa-green/70 bg-black/20 rounded-sm px-2 py-1 mb-2 cursor-pointer active:opacity-70"
+                          onClick={() => {
+                            const el = document.querySelector(`[data-wamid="${msg.reply_to_wamid}"]`);
+                            if (el) {
+                              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              el.style.transition = 'box-shadow 0.2s';
+                              el.style.boxShadow = '0 0 0 2px rgba(0,168,132,0.6)';
+                              el.style.borderRadius = '8px';
+                              setTimeout(() => { el.style.boxShadow = ''; el.style.borderRadius = ''; }, 1200);
+                            }
+                          }}
+                        >
                           <p className="text-[10px] text-wa-green/80 font-medium mb-0.5">
                             {quoted?.direction === 'inbound' ? (conversation.contact.name || conversation.contact.phone) : 'You'}
                           </p>
