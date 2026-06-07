@@ -18,6 +18,7 @@ const STATUS_COLORS = {
 
 const DRAFT_KEY = 'asaaye_bulk_draft';
 
+
 // ── Pure helpers ───────────────────────────────────────────────────────────────
 
 const formatWhatsAppText = (text) => {
@@ -379,7 +380,8 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
   const tableHasAnyError = rowErrors.some(e => e.length > 0);
   const tableHasAnyRow = rows.some(r => r.phone.trim());
   const canPreview = selected && (inputMode === 'table' ? tableHasAnyRow : csvData.trim().length > 0);
-  const colHeaders = ['Phone', ...Array.from({ length: numParams }, (_, i) => `Param ${i + 1}`), ...(hasMedia ? [selected.header_format + ' URL'] : [])];
+  const paramLabels = selected?.param_labels || [];
+  const colHeaders = ['Phone', ...Array.from({ length: numParams }, (_, i) => paramLabels[i] || `Param ${i + 1}`), ...(hasMedia ? [selected.header_format + ' URL'] : [])];
   const recipientCount = inputMode === 'table'
     ? rows.filter(r => r.phone.trim()).length
     : csvData.trim().split(/\r?\n/).filter(l => l.trim()).length;
@@ -558,7 +560,7 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
                   >
                     <option value={-1}>Don't map</option>
                     {Array.from({ length: numParams }, (_, i) => (
-                      <option key={i} value={i}>Param {i + 1}</option>
+                      <option key={i} value={i}>{paramLabels[i] || `Param ${i + 1}`}</option>
                     ))}
                   </select>
                 </div>
@@ -675,7 +677,7 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
                               />
                               {Array.from({ length: numParams }, (_, pi) => (
                                 <input key={pi} type="text" value={row.params[pi] || ''} onChange={e => updateCell(ri, `param_${pi}`, e.target.value)}
-                                  placeholder={`{{${pi + 1}}}`}
+                                  placeholder={paramLabels[pi] || `{{${pi + 1}}}`}
                                   className={`w-28 shrink-0 bg-wa-input text-wa-text text-xs rounded-lg px-2.5 py-2 outline-none placeholder:text-wa-muted/40 ${fieldErr(`param_${pi}`) && row.params[pi] !== undefined ? 'ring-1 ring-red-400/60' : 'focus:ring-1 focus:ring-wa-green/30'}`}
                                 />
                               ))}
@@ -717,7 +719,7 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
               <div className="shrink-0 text-[11px] text-wa-muted p-2.5 bg-wa-input/50 rounded-lg leading-relaxed">
                 <span className="font-semibold text-wa-text">Format</span> — one row per line, comma-separated, no header:<br />
                 <span className="font-mono text-wa-green">
-                  Phone{numParams > 0 ? Array.from({ length: numParams }, (_, i) => `, Param${i + 1}`).join('') : ''}{hasMedia ? `, ${selected?.header_format}_URL` : ''}
+                  Phone{numParams > 0 ? Array.from({ length: numParams }, (_, i) => `, ${paramLabels[i] || `Param${i + 1}`}`).join('') : ''}{hasMedia ? `, ${selected?.header_format}_URL` : ''}
                 </span>
               </div>
               {liveErrors.length > 0 && (
