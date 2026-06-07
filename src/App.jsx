@@ -65,8 +65,18 @@ export default function App() {
       setMessages(prev => prev.map(m =>
         m.id === upd.message_id ? { ...m, status: upd.status, error_message: upd.error_message } : m
       ));
-      if (upd.status === 'failed' && upd.error_message) {
-        toast.error(upd.error_message, { duration: 6000 });
+      if (upd.status === 'failed') {
+        if (upd.error_message) toast.error(upd.error_message, { duration: 8000 });
+        // Re-fetch from DB to ensure state matches persisted error
+        setActiveConversation(prev => {
+          if (prev && prev.id === upd.conversation_id) {
+            api.getMessages(prev.id).then(data => {
+              setMessages(data);
+              setMessagesCache(c => ({ ...c, [prev.id]: data }));
+            });
+          }
+          return prev;
+        });
       }
     }
   }, [activeConversation, loadConversations]);
@@ -120,7 +130,7 @@ export default function App() {
           setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
         }
       }),
-      { loading: 'Sending...', success: 'Sent ✓', error: e => e.message || 'Failed to send' }
+      { loading: 'Sending...', success: 'Queued ✓', error: e => e.message || 'Failed to send' }
     );
   };
 
