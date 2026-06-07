@@ -37,6 +37,8 @@ export const api = {
   sendTemplate: (data) => request('/api/messages/send-template', { method: 'POST', body: JSON.stringify(data) }),
   sendMedia: (data) => request('/api/messages/send-media', { method: 'POST', body: JSON.stringify(data) }),
   deleteMessage: (messageId) => request(`/api/messages/${messageId}`, { method: 'DELETE' }),
+  reactToMessage: (messageId, emoji) =>
+    request(`/api/messages/${messageId}/react`, { method: 'POST', body: JSON.stringify({ emoji }) }),
 
   // Templates
   getTemplates: () => request('/api/templates'),

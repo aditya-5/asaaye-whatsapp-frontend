@@ -65,6 +65,17 @@ export default function App() {
         });
       }
       loadConversations();
+    } else if (event.type === 'reaction_update') {
+      const upd = event.data;
+      const applyReact = (m) => m.id === upd.message_id
+        ? { ...m, reactions: JSON.stringify(upd.reactions) }
+        : m;
+      setMessages(prev => prev.map(applyReact));
+      setMessagesCache(cache => {
+        const key = upd.conversation_id;
+        if (!cache[key]) return cache;
+        return { ...cache, [key]: cache[key].map(applyReact) };
+      });
     } else if (event.type === 'status_update') {
       const upd = event.data;
       const applyUpdate = (m) =>
@@ -92,7 +103,21 @@ export default function App() {
     }
   }, [activeConversation, loadConversations]);
 
-  const { connected } = useWebSocket(handleWSMessage);
+  // On every WS connect (including reconnects), re-fetch active conversation messages
+  // to catch any status updates that arrived while the socket was down (e.g. iOS PWA sleep)
+  const handleWSConnect = useCallback(() => {
+    setActiveConversation(prev => {
+      if (prev) {
+        api.getMessages(prev.id).then(data => {
+          setMessages(data);
+          setMessagesCache(c => ({ ...c, [prev.id]: data }));
+        }).catch(() => {});
+      }
+      return prev;
+    });
+  }, []);
+
+  const { connected } = useWebSocket(handleWSMessage, handleWSConnect);
 
   const createNotionIfNew = useCallback((phone, name = '') => {
     const norm = (p) => p.replace(/[\s\-+()]/g, '');
@@ -164,6 +189,22 @@ export default function App() {
       setMessages(prev => prev.filter(m => m.id !== tempId));
       toast.error('Failed to send media');
     }
+  };
+
+  const handleReactToMessage = async (messageId, emoji) => {
+    try {
+      const result = await api.reactToMessage(messageId, emoji);
+      const applyReact = (m) => m.id === messageId
+        ? { ...m, reactions: result.reactions && Object.keys(result.reactions).length ? JSON.stringify(result.reactions) : null }
+        : m;
+      setMessages(prev => prev.map(applyReact));
+      setMessagesCache(cache => {
+        if (!activeConversation) return cache;
+        const key = activeConversation.id;
+        if (!cache[key]) return cache;
+        return { ...cache, [key]: cache[key].map(applyReact) };
+      });
+    } catch { toast.error('Failed to send reaction'); }
   };
 
   const handleDeleteMessage = async (messageId) => {
@@ -307,6 +348,7 @@ export default function App() {
           onSendMedia={handleSendMedia}
           onDeleteMessage={handleDeleteMessage}
           onDeleteChat={() => activeConversation && handleDeleteChat(activeConversation.id)}
+          onReactToMessage={handleReactToMessage}
           onBack={() => setActiveConversation(null)}
           onUpdateContact={newName => {
             setActiveConversation(prev => ({ ...prev, contact: { ...prev.contact, name: newName } }));

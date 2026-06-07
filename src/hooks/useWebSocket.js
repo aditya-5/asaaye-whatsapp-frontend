@@ -1,14 +1,14 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 
-export function useWebSocket(onMessage) {
+export function useWebSocket(onMessage, onConnect) {
   const wsRef = useRef(null);
   const [connected, setConnected] = useState(false);
   const reconnectTimeoutRef = useRef(null);
 
   const savedHandler = useRef();
-  useEffect(() => {
-    savedHandler.current = onMessage;
-  }, [onMessage]);
+  const savedOnConnect = useRef();
+  useEffect(() => { savedHandler.current = onMessage; }, [onMessage]);
+  useEffect(() => { savedOnConnect.current = onConnect; }, [onConnect]);
 
   const connect = useCallback(() => {
     const ENV_URL = import.meta.env.VITE_API_URL || '';
@@ -24,6 +24,7 @@ export function useWebSocket(onMessage) {
     ws.onopen = () => {
       setConnected(true);
       console.log('WebSocket connected');
+      if (savedOnConnect.current) savedOnConnect.current();
     };
 
     ws.onmessage = (event) => {
@@ -42,7 +43,7 @@ export function useWebSocket(onMessage) {
     };
 
     ws.onerror = () => {
-      // Don't close explicitly here, let onclose handle it to avoid duplicate triggers
+      // Let onclose handle reconnect
     };
   }, []);
 
@@ -50,7 +51,7 @@ export function useWebSocket(onMessage) {
     connect();
     return () => {
       if (wsRef.current) {
-        wsRef.current.onclose = null; // Prevent reconnect on explicit unmount
+        wsRef.current.onclose = null;
         wsRef.current.close();
       }
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);

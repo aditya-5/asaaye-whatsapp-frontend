@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Send, User, Check, CheckCheck, Clock, AlertCircle, Trash2, ArrowLeft, ChevronLeft, Edit2,
-  StickyNote, Bell, BellRing, Paperclip, Zap, X, Plus, Loader, ChevronDown
+  StickyNote, Bell, BellRing, Paperclip, Zap, X, Plus, Loader, ChevronDown, Smile
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api';
 import { getInitials } from './Sidebar';
+
+const REACTION_EMOJIS = ['❤️', '👍', '😂', '😮', '😢', '🙏'];
 
 const STATUS_OPTIONS = [
   { value: 'open', label: 'Open', active: 'bg-wa-green text-wa-darker border-wa-green', inactive: 'text-wa-muted border-wa-border' },
@@ -41,7 +43,7 @@ const formatWhatsAppText = (text) => {
 
 export default function ChatView({
   conversation, messages, onSendMessage, onSendMedia, onDeleteMessage, onDeleteChat,
-  onBack, onUpdateContact, onConversationUpdate
+  onReactToMessage, onBack, onUpdateContact, onConversationUpdate
 }) {
   const [input, setInput] = useState('');
   const [showProfile, setShowProfile] = useState(false);
@@ -77,8 +79,9 @@ export default function ChatView({
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [mediaPreview, setMediaPreview] = useState(null);
 
-  // Message context menu
+  // Message context menu & reaction picker
   const [activeMenuId, setActiveMenuId] = useState(null);
+  const [reactionPickerForMsgId, setReactionPickerForMsgId] = useState(null);
   const longPressTimer = useRef(null);
 
   useEffect(() => {
@@ -86,11 +89,11 @@ export default function ChatView({
   }, [messages]);
 
   useEffect(() => {
-    if (!activeMenuId) return;
-    const close = () => setActiveMenuId(null);
+    if (!activeMenuId && reactionPickerForMsgId === null) return;
+    const close = () => { setActiveMenuId(null); setReactionPickerForMsgId(null); };
     document.addEventListener('click', close);
     return () => document.removeEventListener('click', close);
-  }, [activeMenuId]);
+  }, [activeMenuId, reactionPickerForMsgId]);
 
   useEffect(() => {
     api.getQuickReplies().then(setQuickReplies).catch(() => {});
@@ -337,6 +340,8 @@ export default function ChatView({
           const msgDate = formatDate(msg.timestamp);
           const showDateSep = msgDate !== lastDate;
           lastDate = msgDate;
+          const reacts = (() => { try { return msg.reactions ? JSON.parse(msg.reactions) : {}; } catch { return {}; } })();
+          const hasReacts = Object.keys(reacts).length > 0;
           return (
             <div key={msg.id}>
               {showDateSep && (
@@ -346,12 +351,30 @@ export default function ChatView({
               )}
               {/* Per-message: long press on mobile triggers context menu */}
               <div
-                className={`flex mb-1 animate-slide-in ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
+                className={`flex ${hasReacts ? 'mb-3' : 'mb-1'} animate-slide-in ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
                 onTouchStart={() => { longPressTimer.current = setTimeout(() => setActiveMenuId(msg.id), 600); }}
                 onTouchMove={() => clearTimeout(longPressTimer.current)}
                 onTouchEnd={() => clearTimeout(longPressTimer.current)}
               >
                 <div className="relative group/msg max-w-[72%]">
+                  {/* Desktop reaction picker — inline above bubble */}
+                  {reactionPickerForMsgId === msg.id && (
+                    <div
+                      className={`hidden md:flex items-center gap-1 mb-1.5 ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <div className="flex items-center gap-1 bg-wa-dark border border-wa-border rounded-full px-2.5 py-1.5 shadow-2xl">
+                        {REACTION_EMOJIS.map(emoji => (
+                          <button key={emoji}
+                            onClick={() => { onReactToMessage?.(msg.id, emoji); setReactionPickerForMsgId(null); }}
+                            className={`text-xl hover:scale-125 transition-transform rounded-full px-0.5 py-0 ${reacts[emoji] === 'outbound' ? 'bg-wa-green/25' : ''}`}>
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className={`px-3 py-2 rounded-lg shadow-sm ${msg.direction === 'outbound' ? 'bg-wa-outgoing rounded-tr-none' : 'bg-wa-incoming rounded-tl-none'}`}>
                     {msg.message_type === 'template' && (
                       <span className="text-[10px] text-wa-green/70 font-medium block mb-1">📋 TEMPLATE</span>
@@ -380,20 +403,42 @@ export default function ChatView({
                     )}
                   </div>
 
-                  {/* Desktop-only hover arrow */}
-                  {onDeleteMessage && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setActiveMenuId(activeMenuId === msg.id ? null : msg.id); }}
-                      className={`hidden md:block absolute top-1 ${msg.direction === 'outbound' ? 'left-0 -translate-x-full pl-1' : 'right-0 translate-x-full pr-1'} opacity-0 group-hover/msg:opacity-100 transition-opacity p-0.5 text-wa-muted hover:text-wa-text`}
-                    >
-                      <ChevronDown size={14} />
-                    </button>
+                  {/* Reaction pills — below bubble, slightly overlapping */}
+                  {hasReacts && (
+                    <div className={`flex gap-1 flex-wrap -mb-2 mt-0.5 ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
+                      {Object.entries(reacts).map(([emoji, sender]) => (
+                        <button key={emoji}
+                          onClick={(e) => { e.stopPropagation(); onReactToMessage?.(msg.id, emoji); }}
+                          className={`text-sm rounded-full px-1.5 py-0.5 border flex items-center gap-0.5 transition-colors shadow-sm
+                            ${sender === 'outbound' ? 'bg-wa-green/15 border-wa-green/40 text-wa-green' : 'bg-wa-input border-wa-border'}`}>
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
                   )}
+
+                  {/* Desktop hover actions: Smile (reactions) + ChevronDown (delete) */}
+                  <div className={`hidden md:flex items-center gap-0.5 absolute top-1 ${msg.direction === 'outbound' ? 'left-0 -translate-x-full pr-1' : 'right-0 translate-x-full pl-1'} opacity-0 group-hover/msg:opacity-100 transition-opacity`}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setReactionPickerForMsgId(id => id === msg.id ? null : msg.id); setActiveMenuId(null); }}
+                      className="p-0.5 text-wa-muted hover:text-wa-text rounded transition-colors"
+                    >
+                      <Smile size={14} />
+                    </button>
+                    {onDeleteMessage && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setActiveMenuId(id => id === msg.id ? null : msg.id); setReactionPickerForMsgId(null); }}
+                        className="p-0.5 text-wa-muted hover:text-wa-text rounded transition-colors"
+                      >
+                        <ChevronDown size={14} />
+                      </button>
+                    )}
+                  </div>
 
                   {/* Desktop dropdown */}
                   {activeMenuId === msg.id && (
                     <div
-                      className={`hidden md:block absolute top-0 z-20 bg-wa-dark border border-wa-border rounded-lg shadow-xl min-w-[110px] ${msg.direction === 'outbound' ? 'right-full mr-6' : 'left-full ml-6'}`}
+                      className={`hidden md:block absolute top-8 z-20 bg-wa-dark border border-wa-border rounded-lg shadow-xl min-w-[110px] ${msg.direction === 'outbound' ? 'right-0' : 'left-0'}`}
                       onClick={e => e.stopPropagation()}
                     >
                       <button
@@ -413,20 +458,34 @@ export default function ChatView({
       </div>
 
       {/* Mobile bottom-sheet context menu */}
-      {activeMenuId && (
-        <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setActiveMenuId(null)}>
-          <div className="absolute inset-0 bg-black/40" />
-          <div className="relative bg-wa-dark border-t border-wa-border rounded-t-2xl pb-8 shadow-2xl animate-slide-in" onClick={e => e.stopPropagation()}>
-            <div className="w-10 h-1 bg-wa-border rounded-full mx-auto mt-3 mb-1" />
-            <button
-              onClick={() => { onDeleteMessage(activeMenuId); setActiveMenuId(null); }}
-              className="flex items-center gap-3 px-6 py-4 text-red-400 hover:bg-wa-hover/50 w-full transition-colors text-base font-medium"
-            >
-              <Trash2 size={20} /> Delete message
-            </button>
+      {activeMenuId && (() => {
+        const activeMsg = messages.find(m => m.id === activeMenuId);
+        const activeReacts = (() => { try { return activeMsg?.reactions ? JSON.parse(activeMsg.reactions) : {}; } catch { return {}; } })();
+        return (
+          <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setActiveMenuId(null)}>
+            <div className="absolute inset-0 bg-black/40" />
+            <div className="relative bg-wa-dark border-t border-wa-border rounded-t-2xl pb-8 shadow-2xl animate-slide-in" onClick={e => e.stopPropagation()}>
+              <div className="w-10 h-1 bg-wa-border rounded-full mx-auto mt-3 mb-1" />
+              {/* Reaction emoji row */}
+              <div className="flex justify-around px-4 py-3 border-b border-wa-border">
+                {REACTION_EMOJIS.map(emoji => (
+                  <button key={emoji}
+                    onClick={() => { onReactToMessage?.(activeMenuId, emoji); setActiveMenuId(null); }}
+                    className={`text-[26px] transition-transform active:scale-90 rounded-full p-1 ${activeReacts[emoji] === 'outbound' ? 'bg-wa-green/25 ring-1 ring-wa-green/40' : ''}`}>
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => { onDeleteMessage(activeMenuId); setActiveMenuId(null); }}
+                className="flex items-center gap-3 px-6 py-4 text-red-400 hover:bg-wa-hover/50 w-full transition-colors text-base font-medium"
+              >
+                <Trash2 size={20} /> Delete message
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Input ──────────────────────────────────────── */}
       {!windowOpen ? (
