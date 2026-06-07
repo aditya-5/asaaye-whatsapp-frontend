@@ -36,11 +36,20 @@ export default function App() {
   activeConvRef.current = activeConversation;
   const messagesCacheRef = useRef({});
   messagesCacheRef.current = messagesCache;
+  // Reaction previews survive loadConversations round-trips until a real message supersedes them
+  const reactionPreviewsRef = useRef(new Map());
 
   const loadConversations = useCallback(async () => {
     try {
       const data = await api.getConversations();
-      setConversations(data);
+      const previews = reactionPreviewsRef.current;
+      setConversations(previews.size > 0
+        ? data.map(conv => {
+            const p = previews.get(conv.id);
+            return p ? { ...conv, last_message: p } : conv;
+          })
+        : data
+      );
     } catch (e) {
       console.error('Failed to load conversations:', e);
     } finally {
@@ -87,6 +96,9 @@ export default function App() {
         return { ...cache, [key]: [...cache[key], msg] };
       });
 
+      // Any real message supersedes a reaction preview for this conv
+      reactionPreviewsRef.current.delete(msg.conversation_id);
+
       // Optimistic sidebar update — don't wait for loadConversations round-trip
       if (msg.direction === 'inbound') {
         setConversations(prev => {
@@ -126,7 +138,7 @@ export default function App() {
         if (!cache[key]) return cache;
         return { ...cache, [key]: cache[key].map(applyReact) };
       });
-      // Update sidebar with reaction preview
+      // Update sidebar with reaction preview (persists across loadConversations via reactionPreviewsRef)
       const entries = Object.entries(upd.reactions || {});
       if (entries.length > 0) {
         const msgs = messagesCacheRef.current[upd.conversation_id] || [];
@@ -138,11 +150,16 @@ export default function App() {
           const preview = dir === 'outbound'
             ? `You reacted ${emoji} to "${msgPreview}"`
             : `Reacted ${emoji} to "${msgPreview}"`;
+          const lastMsgData = { content: preview, direction: dir };
+          reactionPreviewsRef.current.set(upd.conversation_id, lastMsgData);
           setConversations(prev => prev.map(c => c.id === upd.conversation_id
-            ? { ...c, last_message: { content: preview, direction: dir } }
+            ? { ...c, last_message: lastMsgData }
             : c
           ));
         }
+      } else {
+        // All reactions removed — clear preview so server data takes over
+        reactionPreviewsRef.current.delete(upd.conversation_id);
       }
     } else if (event.type === 'status_update') {
       const upd = event.data;
@@ -201,6 +218,7 @@ export default function App() {
   }, [notionContacts]);
 
   const optimisticConvUpdate = useCallback((convId, text, now) => {
+    reactionPreviewsRef.current.delete(convId);
     setConversations(prev => {
       const updated = prev.map(c => c.id === convId
         ? { ...c, last_message: { content: text, direction: 'outbound' }, last_message_at: now }
