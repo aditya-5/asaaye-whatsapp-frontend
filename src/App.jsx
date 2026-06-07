@@ -85,19 +85,46 @@ export default function App() {
 
   const handleSendMessage = async (text) => {
     if (!activeConversation) return;
+    const tempId = `temp_${Date.now()}`;
+    setMessages(prev => [...prev, {
+      id: tempId, conversation_id: activeConversation.id,
+      direction: 'outbound', content: text, message_type: 'text',
+      status: 'pending', timestamp: new Date().toISOString(),
+    }]);
     try {
       const msg = await api.sendText(activeConversation.contact.phone, text);
-      setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+      setMessages(prev => {
+        const without = prev.filter(m => m.id !== tempId);
+        return without.some(m => m.id === msg.id) ? without : [...without, msg];
+      });
       loadConversations();
-    } catch { toast.error('Failed to send message'); }
+    } catch {
+      setMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: 'failed', error_message: 'Failed to send' } : m));
+      toast.error('Failed to send message');
+    }
   };
 
-  const handleSendMedia = async (phone, mediaType, mediaUrl) => {
+  const handleSendMedia = async (phone, mediaType, mediaUrl, caption = '') => {
+    const tempId = `temp_${Date.now()}`;
+    if (activeConversation) {
+      setMessages(prev => [...prev, {
+        id: tempId, conversation_id: activeConversation.id,
+        direction: 'outbound',
+        content: `[${mediaType === 'video' ? 'Video' : 'Image'} Attachment]\n${mediaUrl}\n${caption}`,
+        message_type: mediaType, status: 'pending', timestamp: new Date().toISOString(),
+      }]);
+    }
     try {
-      const msg = await api.sendMedia({ phone, media_type: mediaType, media_url: mediaUrl, caption: '' });
-      setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+      const msg = await api.sendMedia({ phone, media_type: mediaType, media_url: mediaUrl, caption });
+      setMessages(prev => {
+        const without = prev.filter(m => m.id !== tempId);
+        return without.some(m => m.id === msg.id) ? without : [...without, msg];
+      });
       loadConversations();
-    } catch { toast.error('Failed to send media'); }
+    } catch {
+      setMessages(prev => prev.filter(m => m.id !== tempId));
+      toast.error('Failed to send media');
+    }
   };
 
   const handleDeleteMessage = async (messageId) => {

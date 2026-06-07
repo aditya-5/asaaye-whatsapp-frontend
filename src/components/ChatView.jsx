@@ -70,6 +70,7 @@ export default function ChatView({
 
   // Media
   const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [mediaPreview, setMediaPreview] = useState(null); // {file, url, type, caption}
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -177,18 +178,27 @@ export default function ChatView({
   };
 
   // Media upload
-  const handleFileSelect = async (e) => {
+  const handleFileSelect = (e) => {
     const file = e.target.files?.[0];
-    if (!file || !onSendMedia) return;
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    const type = file.type.startsWith('video') ? 'video' : 'image';
+    setMediaPreview({ file, url, type, caption: '' });
+    e.target.value = '';
+  };
+
+  const handleMediaSend = async () => {
+    if (!mediaPreview || !onSendMedia) return;
+    const { file, url, type, caption } = mediaPreview;
+    URL.revokeObjectURL(url);
+    setMediaPreview(null);
     setUploadingMedia(true);
     try {
       const { upload_url, download_url } = await api.presignUpload(file.name, file.type);
       await fetch(upload_url, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
-      const mediaType = file.type.startsWith('video') ? 'video' : 'image';
-      await onSendMedia(conversation.contact.phone, mediaType, download_url);
-      toast.success('Media sent!');
+      await onSendMedia(conversation.contact.phone, type, download_url, caption);
     } catch { toast.error('Failed to upload media'); }
-    finally { setUploadingMedia(false); e.target.value = ''; }
+    finally { setUploadingMedia(false); }
   };
 
   // Quick replies filtering
@@ -449,6 +459,44 @@ export default function ChatView({
             >
               <Send size={18} className="text-wa-darker" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Media Preview Modal */}
+      {mediaPreview && (
+        <div className="absolute inset-0 bg-black/80 z-30 flex items-center justify-center p-4">
+          <div className="bg-wa-dark border border-wa-border rounded-xl w-full max-w-sm shadow-2xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-wa-border flex items-center justify-between">
+              <span className="text-sm font-semibold text-wa-text">Send {mediaPreview.type === 'video' ? 'Video' : 'Image'}</span>
+              <button onClick={() => { URL.revokeObjectURL(mediaPreview.url); setMediaPreview(null); }} className="text-wa-muted hover:text-wa-text p-1">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-4 flex flex-col gap-3">
+              {mediaPreview.type === 'image' ? (
+                <img src={mediaPreview.url} alt="Preview" className="w-full max-h-64 object-contain rounded-lg bg-black/30" />
+              ) : (
+                <video src={mediaPreview.url} className="w-full max-h-64 rounded-lg bg-black/30" controls />
+              )}
+              <input
+                type="text"
+                value={mediaPreview.caption}
+                onChange={e => setMediaPreview(prev => ({ ...prev, caption: e.target.value }))}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') handleMediaSend();
+                  if (e.key === 'Escape') { URL.revokeObjectURL(mediaPreview.url); setMediaPreview(null); }
+                }}
+                placeholder="Add a caption (optional)..."
+                autoFocus
+                className="w-full bg-wa-input border border-wa-border text-wa-text text-sm rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-wa-green/30 placeholder:text-wa-muted"
+              />
+              <button onClick={handleMediaSend}
+                className="w-full bg-wa-green text-wa-darker py-2 rounded-lg text-sm font-semibold hover:bg-wa-green/90 transition-colors flex items-center justify-center gap-2">
+                <Send size={15} />
+                Send
+              </button>
+            </div>
           </div>
         </div>
       )}
