@@ -549,7 +549,7 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
                   <CategoryBadge category={t.category} />
                   {t.header_format && <HeaderIcon format={t.header_format} />}
                 </div>
-                <p className="text-[11px] text-wa-muted line-clamp-2 whitespace-pre-wrap">{getBodyText(t)}</p>
+                <p className={`text-[11px] text-wa-muted whitespace-pre-wrap ${selected?.id === t.id ? '' : 'line-clamp-2'}`}>{getBodyText(t)}</p>
               </div>
             ))}
           </div>

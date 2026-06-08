@@ -74,6 +74,21 @@ export default function BulkBlastModal({ contacts, onClose }) {
                   <option key={t.name} value={t.name}>{t.name}</option>
                 ))}
               </select>
+              {selectedTemplate && (
+                <div className="mt-2 px-3 py-2.5 bg-wa-incoming/40 border border-wa-border/50 rounded-lg">
+                  {selectedTemplate.header_format && (
+                    <p className="text-[10px] text-wa-green mb-1 uppercase tracking-wide font-medium">{selectedTemplate.header_format} header</p>
+                  )}
+                  <p className="text-[12px] text-wa-text leading-relaxed whitespace-pre-wrap">
+                    {selectedTemplate.components?.find(c => c.type === 'BODY')?.text || ''}
+                  </p>
+                  {selectedTemplate.components?.find(c => c.type === 'FOOTER')?.text && (
+                    <p className="text-[10px] text-wa-muted mt-1.5 border-t border-wa-border/50 pt-1">
+                      {selectedTemplate.components.find(c => c.type === 'FOOTER').text}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
