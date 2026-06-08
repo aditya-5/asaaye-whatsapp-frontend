@@ -69,6 +69,20 @@ const HeaderIcon = ({ format }) => {
   return null;
 };
 
+const CategoryBadge = ({ category, className = '' }) => {
+  if (!category) return null;
+  const styles = category === 'UTILITY'
+    ? 'bg-blue-400/10 text-blue-400 border-blue-400/20'
+    : category === 'MARKETING'
+    ? 'bg-amber-400/10 text-amber-400 border-amber-400/20'
+    : 'bg-purple-400/10 text-purple-400 border-purple-400/20';
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${styles} ${className}`}>
+      {category}
+    </span>
+  );
+};
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function TemplatePicker({ onClose, onSend, initialContact = null }) {
@@ -92,6 +106,9 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
   const [notionActiveSegments, setNotionActiveSegments] = useState([]);
   const [notionSelected, setNotionSelected] = useState(new Set());
   const [notionNameParam, setNotionNameParam] = useState(-1); // -1 = don't map; 0..N = param index
+
+  // Category filter
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
 
   // Mobile template preview collapsed state
   const [mobilePreviewOpen, setMobilePreviewOpen] = useState(false);
@@ -377,6 +394,8 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
 
   // ── Derived ──────────────────────────────────────────────────────────────────
 
+  const filteredTemplates = categoryFilter === 'ALL' ? templates : templates.filter(t => t.category === categoryFilter);
+
   const tableHasAnyError = rowErrors.some(e => e.length > 0);
   const tableHasAnyRow = rows.some(r => r.phone.trim());
   const canPreview = selected && (inputMode === 'table' ? tableHasAnyRow : csvData.trim().length > 0);
@@ -398,9 +417,12 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
         </button>
         <h1 className="text-base font-semibold text-wa-text flex-1">Bulk Send</h1>
         {selected && (
-          <span className="text-xs text-wa-green bg-wa-green/10 border border-wa-green/20 px-2 py-1 rounded-full font-medium">
-            {selected.name}
-          </span>
+          <>
+            <span className="text-xs text-wa-green bg-wa-green/10 border border-wa-green/20 px-2 py-1 rounded-full font-medium truncate max-w-[140px] sm:max-w-none">
+              {selected.name}
+            </span>
+            <CategoryBadge category={selected.category} />
+          </>
         )}
       </div>
 
@@ -418,6 +440,24 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
 
         {/* Mobile: template select dropdown + collapsible preview */}
         <div className="md:hidden shrink-0 border-b border-wa-border">
+          {/* Category filter chips */}
+          {!loading && templates.length > 0 && (
+            <div className="flex gap-1.5 px-3 pt-2">
+              {['ALL', 'UTILITY', 'MARKETING'].map(cat => (
+                <button key={cat} onClick={() => setCategoryFilter(cat)}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                    categoryFilter === cat
+                      ? cat === 'UTILITY' ? 'bg-blue-400/20 text-blue-400 border border-blue-400/30'
+                        : cat === 'MARKETING' ? 'bg-amber-400/20 text-amber-400 border border-amber-400/30'
+                        : 'bg-wa-green text-wa-darker'
+                      : 'bg-wa-input text-wa-muted hover:text-wa-text border border-transparent'
+                  }`}
+                >
+                  {cat === 'ALL' ? 'All' : cat.charAt(0) + cat.slice(1).toLowerCase()}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="px-3 pt-2 pb-2 flex items-center gap-2">
             {loading ? (
               <p className="text-wa-muted text-sm py-1 flex-1">Loading templates…</p>
@@ -428,7 +468,7 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
                 className="flex-1 min-w-0 bg-wa-input text-wa-text text-sm rounded-lg px-3 py-2.5 outline-none border border-wa-border focus:ring-1 focus:ring-wa-green/30"
               >
                 <option value="">Select a template…</option>
-                {templates.map(t => (
+                {filteredTemplates.map(t => (
                   <option key={t.id} value={t.id}>{t.name}{t.status !== 'APPROVED' ? ` (${t.status})` : ''}</option>
                 ))}
               </select>
@@ -442,6 +482,16 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
               </button>
             )}
           </div>
+          {selected && (
+            <div className="px-3 pb-2 flex items-center gap-2">
+              <CategoryBadge category={selected.category} />
+              {selected.header_format && (
+                <span className="text-[11px] text-wa-muted flex items-center gap-1">
+                  <HeaderIcon format={selected.header_format} /> {selected.header_format} header
+                </span>
+              )}
+            </div>
+          )}
           {selected && mobilePreviewOpen && (
             <div className="mx-3 mb-2 px-3 py-2 bg-wa-incoming/40 border border-wa-border/50 rounded-lg">
               {selected.header_format && (
@@ -462,26 +512,42 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
 
         {/* Left: Template list — desktop only */}
         <div className="hidden md:flex w-64 shrink-0 border-r border-wa-border flex-col overflow-hidden">
-          <div className="px-3 py-2.5 border-b border-wa-border shrink-0">
+          <div className="px-3 pt-2.5 pb-2 border-b border-wa-border shrink-0 space-y-2">
             <p className="text-xs font-semibold text-wa-muted uppercase tracking-wider">1 · Select Template</p>
+            <div className="flex gap-1 bg-wa-input/50 rounded-lg p-0.5">
+              {['ALL', 'UTILITY', 'MARKETING'].map(cat => (
+                <button key={cat} onClick={() => setCategoryFilter(cat)}
+                  className={`flex-1 py-1 rounded-md text-[11px] font-medium transition-all ${
+                    categoryFilter === cat
+                      ? cat === 'UTILITY' ? 'bg-blue-400/20 text-blue-400 shadow'
+                        : cat === 'MARKETING' ? 'bg-amber-400/20 text-amber-400 shadow'
+                        : 'bg-wa-dark text-wa-green shadow'
+                      : 'text-wa-muted hover:text-wa-text'
+                  }`}
+                >
+                  {cat === 'ALL' ? 'All' : cat.charAt(0) + cat.slice(1).toLowerCase()}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
             {loading ? (
               <p className="text-wa-muted text-sm px-2 py-4">Loading…</p>
-            ) : templates.length === 0 ? (
-              <p className="text-wa-muted text-sm px-2 py-4">No templates found</p>
-            ) : templates.map(t => (
+            ) : filteredTemplates.length === 0 ? (
+              <p className="text-wa-muted text-sm px-2 py-4">No {categoryFilter !== 'ALL' ? categoryFilter.toLowerCase() : ''} templates found</p>
+            ) : filteredTemplates.map(t => (
               <div key={t.id} onClick={() => { setSelected(t); setBulkRows([]); setBulkErrors([]); }}
                 className={`p-2.5 rounded-lg cursor-pointer border transition-all ${selected?.id === t.id ? 'border-wa-green bg-wa-green/10' : 'border-wa-border/60 hover:border-wa-muted/50 bg-wa-input/40'}`}
               >
-                <div className="flex items-center justify-between gap-1 mb-0.5">
+                <div className="flex items-center justify-between gap-1 mb-1">
                   <span className="text-sm font-medium text-wa-text truncate">{t.name}</span>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {t.header_format && <HeaderIcon format={t.header_format} />}
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${t.status === 'APPROVED' ? 'bg-wa-green/10 text-wa-green' : 'bg-orange-500/10 text-orange-400'}`}>
-                      {t.status}
-                    </span>
-                  </div>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${t.status === 'APPROVED' ? 'bg-wa-green/10 text-wa-green' : 'bg-orange-500/10 text-orange-400'}`}>
+                    {t.status}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <CategoryBadge category={t.category} />
+                  {t.header_format && <HeaderIcon format={t.header_format} />}
                 </div>
                 <p className="text-[11px] text-wa-muted line-clamp-2 whitespace-pre-wrap">{getBodyText(t)}</p>
               </div>
