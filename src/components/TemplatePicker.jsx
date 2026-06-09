@@ -305,6 +305,15 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
     setRows(prev => prev.map((r, i) => i === 0 ? r : { ...r, mediaUrl: firstUrl }));
   };
 
+  const applyFirstRowParam = (pi) => {
+    const firstVal = rows[0]?.params[pi]?.trim();
+    if (!firstVal) return;
+    setRows(prev => prev.map((r, i) => i === 0 ? r : {
+      ...r,
+      params: r.params.map((p, j) => j === pi ? firstVal : p),
+    }));
+  };
+
   const addRow = () => setRows(prev => [...prev, makeEmptyRow(numParams)]);
   const removeRow = (i) => setRows(prev => prev.length === 1 ? [makeEmptyRow(numParams)] : prev.filter((_, idx) => idx !== i));
   const updateCell = (ri, field, value) => {
@@ -712,6 +721,8 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
                       <div className="flex items-center gap-2 py-2 border-b border-wa-border bg-wa-input/30 sticky top-0">
                         {colHeaders.map((h, i) => {
                           const isMediaCol = hasMedia && i === colHeaders.length - 1;
+                          const isParamCol = i > 0 && !isMediaCol;
+                          const pi = i - 1;
                           return (
                             <div key={i} className={`text-[11px] font-semibold text-wa-muted uppercase tracking-wide shrink-0 flex items-center gap-1 ${i === 0 ? 'w-36' : isMediaCol ? 'w-40' : 'w-28'}`}>
                               {h}
@@ -719,6 +730,15 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
                                 <button
                                   onClick={applyFirstRowMedia}
                                   disabled={!rows[0]?.mediaUrl?.trim()}
+                                  className="text-[9px] font-bold text-wa-green border border-wa-green/40 px-1 py-0.5 rounded hover:bg-wa-green/10 disabled:opacity-30 disabled:cursor-not-allowed leading-none"
+                                >
+                                  COMMON
+                                </button>
+                              )}
+                              {isParamCol && (
+                                <button
+                                  onClick={() => applyFirstRowParam(pi)}
+                                  disabled={!rows[0]?.params[pi]?.trim()}
                                   className="text-[9px] font-bold text-wa-green border border-wa-green/40 px-1 py-0.5 rounded hover:bg-wa-green/10 disabled:opacity-30 disabled:cursor-not-allowed leading-none"
                                 >
                                   COMMON
