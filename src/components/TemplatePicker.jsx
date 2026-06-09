@@ -245,7 +245,7 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
   const existingPhones = new Set(rows.map(r => r.phone.replace(/\D/g, '')).filter(p => p.length >= 10));
 
   const filteredNotion = notionContacts.filter(c => {
-    const segMatch = notionActiveSegments.length === 0 || c.segments.some(s => notionActiveSegments.includes(s));
+    const segMatch = notionActiveSegments.length === 0 || notionActiveSegments.every(s => c.segments.includes(s));
     const searchVal = notionSearch.toLowerCase();
     const textMatch = !searchVal || c.name.toLowerCase().includes(searchVal) || c.phone.includes(searchVal);
     return segMatch && textMatch;
