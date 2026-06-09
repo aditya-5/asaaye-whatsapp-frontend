@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Send, User, Check, CheckCheck, Clock, AlertCircle, Trash2, ArrowLeft, ChevronLeft, Edit2,
   StickyNote, Bell, BellRing, Paperclip, Zap, X, Plus, Loader, ChevronDown, Smile,
-  LayoutTemplate, CornerUpLeft
+  LayoutTemplate, CornerUpLeft, MessageSquareDot
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api';
@@ -334,6 +334,21 @@ export default function ChatView({
             <button onClick={() => setNotesOpen(!notesOpen)}
               className={`p-1.5 rounded-full hover:bg-wa-hover transition-colors ${notesOpen ? 'text-wa-green' : 'text-wa-muted'}`}>
               <StickyNote size={18} />
+            </button>
+            <button
+              title="Mark feedback received"
+              onClick={async () => {
+                try {
+                  const r = await api.markFeedbackReceived(conversation.id);
+                  if (r.status === 'already_marked') toast('Already marked as feedback received');
+                  else toast.success('Marked feedback-received in Notion');
+                } catch (e) {
+                  toast.error(e.message || 'Failed to mark feedback');
+                }
+              }}
+              className="p-1.5 rounded-full hover:bg-wa-hover transition-colors text-wa-muted hover:text-wa-green"
+            >
+              <MessageSquareDot size={18} />
             </button>
             {onDeleteChat && (
               <button onClick={onDeleteChat} className="p-1.5 rounded-full hover:bg-wa-hover text-wa-muted hover:text-red-400 transition-all">

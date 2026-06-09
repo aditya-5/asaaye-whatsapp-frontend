@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
-import { LogOut, ShieldAlert, Users } from 'lucide-react';
+import { LogOut, ShieldAlert, Users, Zap } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import ChatView from './components/ChatView';
 import TemplatePicker from './components/TemplatePicker';
 import ContactPicker from './components/ContactPicker';
 import BulkBlastModal from './components/BulkBlastModal';
 import AnalyticsPage from './pages/AnalyticsPage';
+import CampaignsPage from './pages/CampaignsPage';
 import { api } from './api';
 import { useWebSocket } from './hooks/useWebSocket';
 
@@ -23,6 +24,7 @@ export default function App() {
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [templateInitialContact, setTemplateInitialContact] = useState(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [showCampaigns, setShowCampaigns] = useState(false);
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [blastContacts, setBlastContacts] = useState(null);
   const [authed, setAuthed] = useState(() => localStorage.getItem('auth') === 'true');
@@ -397,6 +399,15 @@ export default function App() {
     );
   }
 
+  if (showCampaigns) {
+    return (
+      <div className="h-screen flex">
+        <CampaignsPage onBack={() => setShowCampaigns(false)} />
+        <Toaster position="top-right" toastOptions={TOAST_OPTS} />
+      </div>
+    );
+  }
+
   const norm = (p) => p.replace(/[\s\-+()]/g, '');
   const conversationsWithNames = notionContacts.length
     ? conversations.map(conv => {
@@ -438,6 +449,11 @@ export default function App() {
             className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg hover:bg-wa-hover transition-colors text-wa-muted text-sm">
             <Users size={16} />
             Contacts
+          </button>
+          <button onClick={() => setShowCampaigns(true)}
+            className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg hover:bg-wa-hover transition-colors text-wa-muted text-sm">
+            <Zap size={16} />
+            Campaigns
           </button>
           <button onClick={() => setShowAnalytics(true)}
             className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg hover:bg-wa-hover transition-colors text-wa-muted text-sm">

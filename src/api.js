@@ -78,4 +78,17 @@ export const api = {
   getAnalyticsSummary: () => request('/api/analytics/summary'),
   getDailyAnalytics: (days = 30) => request(`/api/analytics/daily?days=${days}`),
   getSystemAlerts: () => request('/api/analytics/alerts'),
+
+  // Campaigns
+  getCampaigns: () => request('/api/campaigns'),
+  createCampaign: (data) => request('/api/campaigns', { method: 'POST', body: JSON.stringify(data) }),
+  getCampaign: (id) => request(`/api/campaigns/${id}`),
+  updateCampaign: (id, data) => request(`/api/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteCampaign: (id) => request(`/api/campaigns/${id}`, { method: 'DELETE' }),
+  sendCampaign: (id) => request(`/api/campaigns/${id}/send`, { method: 'POST' }),
+  exportCampaignToNotion: (id) => request(`/api/campaigns/${id}/export`, { method: 'POST' }),
+
+  // Feedback
+  markFeedbackReceived: (conversationId) =>
+    request(`/api/campaigns/feedback/${conversationId}`, { method: 'POST' }),
 };
