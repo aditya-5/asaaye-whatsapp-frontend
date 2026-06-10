@@ -2,14 +2,14 @@ import { useState, useEffect, useRef } from 'react';
 import {
   X, Send, Image, FileText, Video, Plus, Trash2, ClipboardPaste, Table2,
   AlertCircle, ArrowLeft, Search, BookUser, ChevronDown, Loader,
-  CheckCircle, XCircle, Clock, ExternalLink, Pencil,
+  CheckCircle, XCircle, Clock, ExternalLink, Pencil, RefreshCw, Tag,
 } from 'lucide-react';
 import { api } from '../api';
 import toast from 'react-hot-toast';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const NOTION_SEGMENTS = [
+const FALLBACK_SEGMENTS = [
   'Customer', 'Female', 'Male',
   'Exhibition-Kanpur', 'Exhibition-Mumbai', 'Exhibition-Jaipur', 'Exhibition-Lucknow',
   'Family/Friends',
@@ -142,13 +142,15 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
   const [notionContacts, setNotionContacts] = useState([]);
   const [notionLoading, setNotionLoading] = useState(false);
   const [notionSearch, setNotionSearch] = useState('');
-  const [notionActiveSegments, setNotionActiveSegments] = useState([]);
+  const [segmentStates, setSegmentStates] = useState({}); // { [segName]: 'include' | 'exclude' }
   const [notionSelected, setNotionSelected] = useState(new Set());
   const [notionNameParam, setNotionNameParam] = useState(-1);
+  const [notionSegments, setNotionSegments] = useState([]);
 
   // ── Draft (one-off mode) ──────────────────────────────────────────────────────
   const [draftBanner, setDraftBanner] = useState(null);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [discardConfirmMsg, setDiscardConfirmMsg] = useState({ title: 'Discard this blast?', body: 'Your recipients and template selection will be lost.' });
 
   // ── Preview & send ────────────────────────────────────────────────────────────
   const [showPreview, setShowPreview] = useState(false);
@@ -169,12 +171,30 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
   const [campaignLoading, setCampaignLoading] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [tagging, setTagging] = useState(false);
+  const [taggedDone, setTaggedDone] = useState(false);
+  const [refreshingStats, setRefreshingStats] = useState(false);
+  const [filterSegmentsUsed, setFilterSegmentsUsed] = useState([]);
+
+  // ── Dirty tracking ────────────────────────────────────────────────────────────
+  const [isDirty, setIsDirty] = useState(!initialCampaignId); // starts dirty if no ID
+  const dirtyInitRef = useRef(false); // skip first render
+
   const pollRef = useRef(null);
   const hasLoadedCampaignRef = useRef(false);
+  const restoredFromCache = useRef(false);
 
   const isSent = (campaignDetail?.status || campaign?.status) === 'sent';
   const numParams = selected?.param_count || 0;
   const hasMedia = !!selected && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(selected.header_format);
+
+  // ── Load Notion segments ──────────────────────────────────────────────────────
+
+  useEffect(() => {
+    api.getNotionSegments()
+      .then(segs => setNotionSegments(segs.map(s => s.name)))
+      .catch(() => setNotionSegments(FALLBACK_SEGMENTS));
+  }, []);
 
   // ── Load templates ────────────────────────────────────────────────────────────
 
@@ -186,6 +206,26 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
         try {
           const raw = localStorage.getItem(DRAFT_KEY);
           if (raw) setDraftBanner(JSON.parse(raw));
+        } catch {}
+      }
+
+      // Session cache restore
+      if (initialCampaignId && !restoredFromCache.current) {
+        try {
+          const cacheKey = `asaaye_campaign_${initialCampaignId}`;
+          const cached = sessionStorage.getItem(cacheKey);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            restoredFromCache.current = true;
+            if (parsed.templateName) {
+              const tpl = data.find(t => t.name === parsed.templateName);
+              if (tpl) { setSelected(tpl); setLocalLabels(tpl.param_labels || []); }
+            }
+            if (parsed.rows?.length) setRows(parsed.rows);
+            if (parsed.inputMode) setInputMode(parsed.inputMode);
+            if (parsed.campaignName) setCampaignName(parsed.campaignName);
+            setIsDirty(false);
+          }
         } catch {}
       }
     }).catch(() => setLoading(false));
@@ -203,7 +243,8 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
         const tpl = templates.find(t => t.name === data.template_name);
         if (tpl) { setSelected(tpl); setLocalLabels(tpl.param_labels || []); }
       }
-      if (data.contact_data && data.status !== 'sent') {
+      // Only restore rows from backend if cache was NOT used
+      if (!restoredFromCache.current && data.contact_data && data.status !== 'sent') {
         try {
           const contacts = JSON.parse(data.contact_data);
           if (Array.isArray(contacts) && contacts.length > 0) {
@@ -216,8 +257,20 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
           }
         } catch {}
       }
+      setIsDirty(false);
     }).catch(() => {}).finally(() => setCampaignLoading(false));
   }, [initialCampaignId, templates.length]);
+
+  // ── Dirty tracking useEffect ──────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!isCampaignMode) return;
+    if (!dirtyInitRef.current) {
+      dirtyInitRef.current = true;
+      return;
+    }
+    setIsDirty(true);
+  }, [rows, campaignName, selected]);
 
   // ── Sync localLabels when template changes ────────────────────────────────────
 
@@ -336,7 +389,7 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
 
   const openNotionDrawer = async () => {
     setShowNotionDrawer(true);
-    setNotionSearch(''); setNotionActiveSegments([]); setNotionSelected(new Set());
+    setNotionSearch(''); setSegmentStates({}); setNotionSelected(new Set());
     if (notionContacts.length > 0) return;
     setNotionLoading(true);
     try { const data = await api.getNotionContacts('', ''); setNotionContacts(data); }
@@ -344,8 +397,12 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
     finally { setNotionLoading(false); }
   };
 
-  const toggleNotionSegment = (seg) =>
-    setNotionActiveSegments(prev => prev.includes(seg) ? prev.filter(s => s !== seg) : [...prev, seg]);
+  const toggleNotionSegment = (seg) => setSegmentStates(prev => {
+    const cur = prev[seg];
+    if (!cur) return { ...prev, [seg]: 'include' };
+    if (cur === 'include') return { ...prev, [seg]: 'exclude' };
+    const next = { ...prev }; delete next[seg]; return next;
+  });
 
   const toggleNotionContact = (phone) =>
     setNotionSelected(prev => { const n = new Set(prev); n.has(phone) ? n.delete(phone) : n.add(phone); return n; });
@@ -353,7 +410,9 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
   const existingPhones = new Set(rows.map(r => r.phone.replace(/\D/g, '')).filter(p => p.length >= 10));
 
   const filteredNotion = notionContacts.filter(c => {
-    const segMatch = notionActiveSegments.length === 0 || notionActiveSegments.every(s => c.segments.includes(s));
+    const includeSegs = Object.entries(segmentStates).filter(([,v]) => v === 'include').map(([k]) => k);
+    const excludeSegs = Object.entries(segmentStates).filter(([,v]) => v === 'exclude').map(([k]) => k);
+    const segMatch = includeSegs.every(s => c.segments.includes(s)) && excludeSegs.every(s => !c.segments.includes(s));
     const searchVal = notionSearch.toLowerCase();
     const textMatch = !searchVal || c.name.toLowerCase().includes(searchVal) || c.phone.includes(searchVal);
     return segMatch && textMatch;
@@ -371,6 +430,12 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
   };
 
   const addNotionContacts = () => {
+    // Capture filter segments (include only) before closing drawer
+    const usedSegments = Object.entries(segmentStates)
+      .filter(([,v]) => v === 'include')
+      .map(([k]) => k);
+    setFilterSegmentsUsed(usedSegments);
+
     const toAdd = notionContacts
       .filter(c => notionSelected.has(c.phone) && !existingPhones.has(c.phone.replace(/\D/g, '')))
       .map(c => {
@@ -429,6 +494,15 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
     const csv = rowsToCsv(rows); if (csv) setCsvData(csv);
     setInputMode('csv');
   };
+
+  // ── Clear all contacts ────────────────────────────────────────────────────────
+
+  const clearAllContacts = () => {
+    setRows([makeEmptyRow(numParams)]);
+    setCsvData('');
+  };
+
+  const hasAnyContactData = rows.some(r => r.phone.trim()) || csvData.trim();
 
   // ── Build contacts from rows ──────────────────────────────────────────────────
 
@@ -493,6 +567,22 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
         setLocalCampaignId(saved.id);
       }
       setCampaignDetail(saved);
+      setIsDirty(false);
+
+      // Write to session cache
+      const id = saved.id || localCampaignId;
+      if (id) {
+        try {
+          sessionStorage.setItem(`asaaye_campaign_${id}`, JSON.stringify({
+            templateName: selected?.name,
+            rows,
+            inputMode,
+            campaignName: campaignName.trim(),
+            ts: Date.now(),
+          }));
+        } catch {}
+      }
+
       toast.success('Draft saved');
     } catch (e) {
       toast.error(e.message || 'Failed to save draft');
@@ -549,6 +639,19 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
       setShowPreview(false);
       setActiveTab('stats');
       toast.success(`Campaign sent to ${result.stats?.sent ?? bulkRows.length} contacts`);
+
+      // Auto-poll after send (5 times max, every 3s, stop when stats.total > 0)
+      let pollCount = 0;
+      const autoPoll = setInterval(async () => {
+        pollCount++;
+        try {
+          const c = await api.getCampaign(result.id || saved.id);
+          setCampaignDetail(c);
+          if ((c.stats?.total ?? 0) > 0 || pollCount >= 5) clearInterval(autoPoll);
+        } catch {
+          clearInterval(autoPoll);
+        }
+      }, 3000);
     } catch (e) {
       toast.error(e.message || 'Failed to send campaign');
     } finally {
@@ -568,7 +671,7 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
     if (!id) return;
     setExporting(true);
     try {
-      await api.exportCampaignToNotion(id);
+      await api.exportCampaignToNotion(id, filterSegmentsUsed);
       setCampaignDetail(prev => ({ ...prev, notion_exported: true }));
       toast.success('Exported to Notion Activity Log');
     } catch (e) {
@@ -578,11 +681,48 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
     }
   };
 
+  // ── Tag Contacts in Notion ────────────────────────────────────────────────────
+
+  const handleTagContacts = async () => {
+    const id = campaignDetail?.id || localCampaignId;
+    if (!id) return;
+    setTagging(true);
+    try {
+      const result = await api.tagCampaignContacts(id);
+      setTaggedDone(true);
+      toast.success(`Tagged ${result.tagged} contact${result.tagged !== 1 ? 's' : ''} with "${result.tag}"`);
+    } catch (e) {
+      toast.error(e.message || 'Tagging failed');
+    } finally {
+      setTagging(false);
+    }
+  };
+
+  // ── Refresh stats ─────────────────────────────────────────────────────────────
+
+  const refreshStats = async () => {
+    const id = campaignDetail?.id || localCampaignId;
+    if (!id) return;
+    setRefreshingStats(true);
+    try {
+      const c = await api.getCampaign(id);
+      setCampaignDetail(c);
+    } catch {}
+    finally { setRefreshingStats(false); }
+  };
+
   // ── Back / discard ────────────────────────────────────────────────────────────
 
   const handleBack = () => {
-    if (!isCampaignMode && hasData) setShowDiscardConfirm(true);
-    else { localStorage.removeItem(DRAFT_KEY); onClose(); }
+    if (!isCampaignMode && hasData) {
+      setDiscardConfirmMsg({ title: 'Discard this blast?', body: 'Your recipients and template selection will be lost.' });
+      setShowDiscardConfirm(true);
+    } else if (isCampaignMode && isDirty) {
+      setDiscardConfirmMsg({ title: 'Discard unsaved changes?', body: 'Your unsaved changes will be lost.' });
+      setShowDiscardConfirm(true);
+    } else {
+      localStorage.removeItem(DRAFT_KEY); onClose();
+    }
   };
 
   // ── Derived ───────────────────────────────────────────────────────────────────
@@ -608,9 +748,12 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
     const isSentOrSending = ['sent', 'sending'].includes(status);
     const stats = detail?.stats;
 
+    // Look up template for content display
+    const tpl = templates.find(t => t.name === (detail?.template_name || selected?.name));
+
     return (
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-        {/* Status + date */}
+        {/* Status + date + refresh */}
         <div className="flex items-center gap-2 flex-wrap">
           <StatusPill status={status} />
           {detail?.sent_at && (
@@ -619,6 +762,14 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
             </span>
           )}
           {status === 'sending' && <Loader size={13} className="animate-spin text-wa-muted" />}
+          <button
+            onClick={refreshStats}
+            disabled={refreshingStats}
+            className="ml-auto p-1.5 rounded-lg text-wa-muted hover:text-wa-text hover:bg-wa-hover transition-colors disabled:opacity-40"
+            title="Refresh stats"
+          >
+            <RefreshCw size={13} className={refreshingStats ? 'animate-spin' : ''} />
+          </button>
         </div>
 
         {/* Summary card */}
@@ -636,6 +787,18 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
             </span>
           </div>
         </div>
+
+        {/* Template content preview */}
+        {tpl && (
+          <div className="bg-wa-input/40 rounded-xl p-3 border border-wa-border/50 space-y-2">
+            <div className="flex items-center gap-2">
+              <CategoryBadge category={tpl.category} />
+              {tpl.header_format && <HeaderIcon format={tpl.header_format} />}
+              <span className="text-xs text-wa-muted">{tpl.language}</span>
+            </div>
+            <p className="text-[12px] text-wa-text leading-relaxed whitespace-pre-wrap">{getBodyText(tpl)}</p>
+          </div>
+        )}
 
         {/* Stats grid — always visible, greyed if not sent */}
         <div className={`grid grid-cols-3 gap-2 transition-opacity ${!isSentOrSending ? 'opacity-35 pointer-events-none' : ''}`}>
@@ -682,6 +845,22 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
           </button>
         )}
 
+        {/* Tag Contacts button */}
+        {isSent && (
+          <button
+            onClick={handleTagContacts}
+            disabled={tagging || taggedDone}
+            className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-lg text-sm font-semibold border transition-colors ${
+              taggedDone
+                ? 'bg-wa-input border-wa-border text-wa-muted cursor-default'
+                : 'bg-wa-input border-wa-green/40 text-wa-green hover:bg-wa-green/10'
+            }`}
+          >
+            {tagging ? <Loader size={14} className="animate-spin" /> : <Tag size={14} />}
+            {taggedDone ? 'Contacts Tagged ✓' : 'Tag Contacts in Notion'}
+          </button>
+        )}
+
         {/* Message list */}
         {isSentOrSending && detail?.messages?.length > 0 && (
           <div>
@@ -705,7 +884,15 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
   // ── Configure body (called as a function, not a component) ────────────────────
 
   const renderConfigure = () => (
-    <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
+    <div className="relative flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
+
+      {/* Loading overlay */}
+      {campaignLoading && !isSent && (
+        <div className="absolute inset-0 bg-wa-dark/70 z-10 flex items-center justify-center gap-2">
+          <Loader size={18} className="animate-spin text-wa-muted" />
+          <span className="text-sm text-wa-muted">Loading campaign…</span>
+        </div>
+      )}
 
       {/* Mobile: template select dropdown */}
       <div className="md:hidden shrink-0 border-b border-wa-border">
@@ -825,14 +1012,26 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
             <BookUser size={13} /> <span className="hidden sm:inline">From Notion</span>
           </button>
           {!showNotionDrawer && (
-            <div className="flex bg-wa-input rounded-lg p-0.5 gap-0.5">
-              <button onClick={() => inputMode === 'csv' ? switchToTable() : null}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${inputMode === 'table' ? 'bg-wa-dark text-wa-text shadow' : 'text-wa-muted hover:text-wa-text'}`}
-              ><Table2 size={13} /> <span className="hidden sm:inline">Table</span></button>
-              <button onClick={() => inputMode === 'table' ? switchToCsv() : null}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${inputMode === 'csv' ? 'bg-wa-dark text-wa-text shadow' : 'text-wa-muted hover:text-wa-text'}`}
-              ><ClipboardPaste size={13} /> <span className="hidden sm:inline">CSV</span></button>
-            </div>
+            <>
+              <div className="flex bg-wa-input rounded-lg p-0.5 gap-0.5">
+                <button onClick={() => inputMode === 'csv' ? switchToTable() : null}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${inputMode === 'table' ? 'bg-wa-dark text-wa-text shadow' : 'text-wa-muted hover:text-wa-text'}`}
+                ><Table2 size={13} /> <span className="hidden sm:inline">Table</span></button>
+                <button onClick={() => inputMode === 'table' ? switchToCsv() : null}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${inputMode === 'csv' ? 'bg-wa-dark text-wa-text shadow' : 'text-wa-muted hover:text-wa-text'}`}
+                ><ClipboardPaste size={13} /> <span className="hidden sm:inline">CSV</span></button>
+              </div>
+              {hasAnyContactData && (
+                <button
+                  onClick={clearAllContacts}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-wa-border text-wa-muted hover:text-red-400 hover:border-red-400/30 transition-all"
+                  title="Clear all contacts"
+                >
+                  <Trash2 size={13} />
+                  <span className="hidden sm:inline">Clear All</span>
+                </button>
+              )}
+            </>
           )}
         </div>
 
@@ -840,11 +1039,20 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
         {showNotionDrawer ? (
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             <div className="shrink-0 px-3 py-2 border-b border-wa-border flex gap-1.5 overflow-x-auto scrollbar-none">
-              {NOTION_SEGMENTS.map(seg => (
-                <button key={seg} onClick={() => toggleNotionSegment(seg)}
-                  className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${notionActiveSegments.includes(seg) ? 'bg-wa-green text-wa-darker' : 'bg-wa-input text-wa-muted hover:text-wa-text'}`}
-                >{seg}</button>
-              ))}
+              {notionSegments.map(seg => {
+                const state = segmentStates[seg];
+                return (
+                  <button key={seg} onClick={() => toggleNotionSegment(seg)}
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors border ${
+                      state === 'include'
+                        ? 'bg-wa-green text-wa-darker border-wa-green/50'
+                        : state === 'exclude'
+                        ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                        : 'bg-wa-input text-wa-muted hover:text-wa-text border-transparent'
+                    }`}
+                  >{seg}</button>
+                );
+              })}
             </div>
             <div className="shrink-0 px-3 py-2 border-b border-wa-border">
               <div className="relative">
@@ -1061,14 +1269,26 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
           </button>
 
           {isCampaignMode ? (
-            <input
-              type="text"
-              value={campaignName}
-              onChange={e => !isSent && setCampaignName(e.target.value)}
-              placeholder="Campaign name…"
-              readOnly={isSent}
-              className={`flex-1 bg-transparent text-base font-semibold text-wa-text outline-none placeholder:text-wa-muted/50 ${isSent ? 'cursor-default' : ''}`}
-            />
+            <>
+              <input
+                type="text"
+                value={campaignName}
+                onChange={e => !isSent && setCampaignName(e.target.value)}
+                placeholder="Campaign name…"
+                readOnly={isSent}
+                className={`flex-1 bg-transparent text-base font-semibold text-wa-text outline-none placeholder:text-wa-muted/50 ${isSent ? 'cursor-default' : ''}`}
+              />
+              {/* Unsaved/Saved indicator */}
+              {!isSent && (
+                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${
+                  isDirty || !localCampaignId
+                    ? 'bg-wa-input text-wa-muted border-wa-border'
+                    : 'bg-wa-green/15 text-wa-green border-wa-green/30'
+                }`}>
+                  {isDirty || !localCampaignId ? 'Unsaved' : 'Saved'}
+                </span>
+              )}
+            </>
           ) : (
             <>
               <h1 className="text-base font-semibold text-wa-text flex-1">Bulk Send</h1>
@@ -1095,7 +1315,7 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
                   activeTab === tab
                     ? 'border-wa-green text-wa-green'
                     : 'border-transparent text-wa-muted hover:text-wa-text'
-                }`}
+                } ${tab === 'configure' && isSent ? 'opacity-50 cursor-default' : ''}`}
               >
                 {tab}
                 {tab === 'stats' && isSent && campaignDetail?.stats?.sent != null && (
@@ -1115,14 +1335,6 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
           <span className="text-sm text-wa-text flex-1">You have an unsaved draft from a previous session.</span>
           <button onClick={restoreDraft} className="text-xs font-semibold text-wa-green hover:underline">Restore</button>
           <button onClick={discardDraft} className="text-xs text-wa-muted hover:text-wa-text">Discard</button>
-        </div>
-      )}
-
-      {/* Campaign loading */}
-      {isCampaignMode && campaignLoading && (
-        <div className="shrink-0 flex items-center justify-center py-3 text-wa-muted gap-2">
-          <Loader size={14} className="animate-spin" />
-          <span className="text-xs">Loading campaign…</span>
         </div>
       )}
 
@@ -1166,8 +1378,8 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
         <div className="fixed inset-0 bg-black/70 z-[70] flex items-center justify-center p-4">
           <div className="bg-wa-dark border border-wa-border rounded-xl shadow-2xl w-full max-w-sm p-6 flex flex-col gap-4">
             <div>
-              <h3 className="font-semibold text-wa-text text-base mb-1">Discard this blast?</h3>
-              <p className="text-sm text-wa-muted">Your recipients and template selection will be lost.</p>
+              <h3 className="font-semibold text-wa-text text-base mb-1">{discardConfirmMsg.title}</h3>
+              <p className="text-sm text-wa-muted">{discardConfirmMsg.body}</p>
             </div>
             <div className="flex gap-3">
               <button onClick={() => setShowDiscardConfirm(false)}

@@ -75,6 +75,7 @@ export const api = {
   createNotionContact: (phone, name = '', segments = ['WhatsApp Initiated']) =>
     request('/api/notion/contacts', { method: 'POST', body: JSON.stringify({ phone, name: name || phone, segments }) }),
   blastTemplate: (data) => request('/api/notion/blast', { method: 'POST', body: JSON.stringify(data) }),
+  getNotionSegments: () => request('/api/notion/segments'),
 
   // Analytics
   getAnalyticsSummary: () => request('/api/analytics/summary'),
@@ -88,7 +89,9 @@ export const api = {
   updateCampaign: (id, data) => request(`/api/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteCampaign: (id) => request(`/api/campaigns/${id}`, { method: 'DELETE' }),
   sendCampaign: (id) => request(`/api/campaigns/${id}/send`, { method: 'POST' }),
-  exportCampaignToNotion: (id) => request(`/api/campaigns/${id}/export`, { method: 'POST' }),
+  exportCampaignToNotion: (id, filterSegments = []) =>
+    request(`/api/campaigns/${id}/export`, { method: 'POST', body: JSON.stringify({ filter_segments: filterSegments }) }),
+  tagCampaignContacts: (id) => request(`/api/campaigns/${id}/tag-contacts`, { method: 'POST' }),
 
   // Feedback
   markFeedbackReceived: (conversationId) =>
