@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { Search, X, Users, Zap, User, ChevronRight } from 'lucide-react';
 import { api } from '../api';
 
-const SEGMENTS = [
-  'All', 'Customer', 'Female', 'Male',
+const FALLBACK_SEGMENTS = [
+  'Customer', 'Female', 'Male',
   'Exhibition-Kanpur', 'Exhibition-Mumbai', 'Exhibition-Jaipur', 'Exhibition-Lucknow',
   'Family/Friends',
 ];
@@ -24,6 +24,13 @@ export default function ContactPicker({ onClose, onSelectSingle, onSelectMultipl
   const [segment, setSegment] = useState('All');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(new Set());
+  const [segments, setSegments] = useState([]);
+
+  useEffect(() => {
+    api.getNotionSegments()
+      .then(segs => setSegments(segs.map(s => s.name)))
+      .catch(() => setSegments(FALLBACK_SEGMENTS));
+  }, []);
 
   useEffect(() => {
     load();
@@ -100,7 +107,7 @@ export default function ContactPicker({ onClose, onSelectSingle, onSelectMultipl
 
         {/* Segment filter */}
         <div className="px-3 py-2 border-b border-wa-border flex gap-1.5 overflow-x-auto scrollbar-none shrink-0">
-          {SEGMENTS.map(s => (
+          {['All', ...segments].map(s => (
             <button
               key={s}
               onClick={() => { setSegment(s); setSelected(new Set()); }}

@@ -393,10 +393,10 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
 
   // ── Notion drawer ─────────────────────────────────────────────────────────────
 
-  const openNotionDrawer = async () => {
+  const openNotionDrawer = async (forceRefresh = false) => {
     setShowNotionDrawer(true);
     setNotionSearch(''); setSegmentStates({}); setNotionSelected(new Set());
-    if (notionContacts.length > 0) return;
+    if (notionContacts.length > 0 && !forceRefresh) return;
     setNotionLoading(true);
     try { const data = await api.getNotionContacts('', ''); setNotionContacts(data); }
     catch { toast.error('Failed to load Notion contacts'); }
@@ -1012,11 +1012,21 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
           <p className="hidden md:block text-xs font-semibold text-wa-muted uppercase tracking-wider flex-1">2 · Add Recipients</p>
           <div className="flex-1 md:hidden" />
           <button
-            onClick={showNotionDrawer ? () => setShowNotionDrawer(false) : openNotionDrawer}
+            onClick={showNotionDrawer ? () => setShowNotionDrawer(false) : () => openNotionDrawer()}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border ${showNotionDrawer ? 'bg-wa-green/10 border-wa-green/30 text-wa-green' : 'border-wa-border text-wa-muted hover:text-wa-text hover:border-wa-muted/50'}`}
           >
             <BookUser size={13} /> <span className="hidden sm:inline">From Notion</span>
           </button>
+          {showNotionDrawer && (
+            <button
+              onClick={() => openNotionDrawer(true)}
+              disabled={notionLoading}
+              className="p-1.5 rounded-lg text-wa-muted hover:text-wa-green hover:bg-wa-hover transition-colors disabled:opacity-40"
+              title="Refresh contacts"
+            >
+              <RefreshCw size={13} className={notionLoading ? 'animate-spin' : ''} />
+            </button>
+          )}
           {!showNotionDrawer && (
             <>
               <div className="flex bg-wa-input rounded-lg p-0.5 gap-0.5">
