@@ -5,7 +5,7 @@ import Sidebar from './components/Sidebar';
 import ChatView from './components/ChatView';
 import TemplatePicker from './components/TemplatePicker';
 import ContactPicker from './components/ContactPicker';
-import BulkBlastModal from './components/BulkBlastModal';
+import BulkSendModal from './components/BulkSendModal';
 import AnalyticsPage from './pages/AnalyticsPage';
 import CampaignsPage from './pages/CampaignsPage';
 import { api } from './api';
@@ -507,7 +507,11 @@ export default function App() {
         />
       )}
       {blastContacts && (
-        <BulkBlastModal contacts={blastContacts} onClose={() => setBlastContacts(null)} />
+        <BulkSendModal
+          initialContacts={blastContacts}
+          onSend={handleSendTemplate}
+          onClose={() => setBlastContacts(null)}
+        />
       )}
     </div>
   );
