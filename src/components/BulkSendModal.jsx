@@ -145,6 +145,7 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
   const [segmentStates, setSegmentStates] = useState({}); // { [segName]: 'include' | 'exclude' }
   const [notionSelected, setNotionSelected] = useState(new Set());
   const [notionNameParam, setNotionNameParam] = useState(-1);
+  const [notionNameField, setNotionNameField] = useState('name'); // 'name' | 'first_name' | 'last_name'
   const [notionSegments, setNotionSegments] = useState([]);
 
   // ── Draft (one-off mode) ──────────────────────────────────────────────────────
@@ -183,6 +184,7 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
   const pollRef = useRef(null);
   const hasLoadedCampaignRef = useRef(false);
   const restoredFromCache = useRef(false);
+  const skipDirtyRef = useRef(0); // incremented before load-triggered state changes
 
   const isSent = (campaignDetail?.status || campaign?.status) === 'sent';
   const numParams = selected?.param_count || 0;
@@ -217,6 +219,7 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
           if (cached) {
             const parsed = JSON.parse(cached);
             restoredFromCache.current = true;
+            skipDirtyRef.current += 1;
             if (parsed.templateName) {
               const tpl = data.find(t => t.name === parsed.templateName);
               if (tpl) { setSelected(tpl); setLocalLabels(tpl.param_labels || []); }
@@ -238,6 +241,7 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
     hasLoadedCampaignRef.current = true;
     setCampaignLoading(true);
     api.getCampaign(initialCampaignId).then(data => {
+      skipDirtyRef.current += 1;
       setCampaignDetail(data);
       if (data.template_name) {
         const tpl = templates.find(t => t.name === data.template_name);
@@ -265,10 +269,12 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
 
   useEffect(() => {
     if (!isCampaignMode) return;
+    if (campaign?.status === 'sent') return;
     if (!dirtyInitRef.current) {
       dirtyInitRef.current = true;
       return;
     }
+    if (skipDirtyRef.current > 0) { skipDirtyRef.current--; return; }
     setIsDirty(true);
   }, [rows, campaignName, selected]);
 
@@ -440,7 +446,7 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
       .filter(c => notionSelected.has(c.phone) && !existingPhones.has(c.phone.replace(/\D/g, '')))
       .map(c => {
         const params = Array(numParams).fill('');
-        if (notionNameParam >= 0 && notionNameParam < numParams) params[notionNameParam] = c.name || '';
+        if (notionNameParam >= 0 && notionNameParam < numParams) params[notionNameParam] = c[notionNameField] || c.name || '';
         return { phone: c.phone.replace(/\D/g, ''), params, mediaUrl: '' };
       });
     setRows(prev => {
@@ -717,7 +723,7 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
     if (!isCampaignMode && hasData) {
       setDiscardConfirmMsg({ title: 'Discard this blast?', body: 'Your recipients and template selection will be lost.' });
       setShowDiscardConfirm(true);
-    } else if (isCampaignMode && isDirty) {
+    } else if (isCampaignMode && isDirty && !isSent) {
       setDiscardConfirmMsg({ title: 'Discard unsaved changes?', body: 'Your unsaved changes will be lost.' });
       setShowDiscardConfirm(true);
     } else {
@@ -1065,7 +1071,14 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
             </div>
             {numParams > 0 && (
               <div className="shrink-0 px-3 py-2 border-b border-wa-border flex items-center gap-2 bg-wa-input/20">
-                <span className="text-[11px] text-wa-muted whitespace-nowrap">Map name →</span>
+                <select value={notionNameField} onChange={e => setNotionNameField(e.target.value)}
+                  className="shrink-0 bg-wa-input text-wa-text text-xs rounded-lg px-2 py-1 outline-none border border-wa-border focus:ring-1 focus:ring-wa-green/30"
+                >
+                  <option value="name">Full name</option>
+                  <option value="first_name">First name</option>
+                  <option value="last_name">Last name</option>
+                </select>
+                <span className="text-[11px] text-wa-muted whitespace-nowrap">→</span>
                 <select value={notionNameParam} onChange={e => setNotionNameParam(parseInt(e.target.value))}
                   className="flex-1 min-w-0 bg-wa-input text-wa-text text-xs rounded-lg px-2 py-1 outline-none border border-wa-border focus:ring-1 focus:ring-wa-green/30"
                 >
@@ -1310,12 +1323,13 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
             {['configure', 'stats'].map(tab => (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab)}
+                onClick={() => !(tab === 'configure' && isSent) && setActiveTab(tab)}
+                disabled={tab === 'configure' && isSent}
                 className={`py-2.5 text-sm font-medium transition-colors border-b-2 capitalize ${
                   activeTab === tab
                     ? 'border-wa-green text-wa-green'
                     : 'border-transparent text-wa-muted hover:text-wa-text'
-                } ${tab === 'configure' && isSent ? 'opacity-50 cursor-default' : ''}`}
+                } ${tab === 'configure' && isSent ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''}`}
               >
                 {tab}
                 {tab === 'stats' && isSent && campaignDetail?.stats?.sent != null && (
