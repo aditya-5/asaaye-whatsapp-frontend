@@ -42,6 +42,8 @@ export const api = {
 
   // Templates
   getTemplates: () => request('/api/templates'),
+  updateTemplateLabels: (name, labels) =>
+    request(`/api/templates/labels/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(labels) }),
 
   // Notes
   getNotes: (conversationId) => request(`/api/conversations/${conversationId}/notes`),
