@@ -144,8 +144,8 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
   const [notionSearch, setNotionSearch] = useState('');
   const [segmentStates, setSegmentStates] = useState({}); // { [segName]: 'include' | 'exclude' }
   const [notionSelected, setNotionSelected] = useState(new Set());
-  const [notionNameParam, setNotionNameParam] = useState(-1);
-  const [notionNameField, setNotionNameField] = useState('name'); // 'name' | 'first_name' | 'last_name'
+  // Maps each name field to a param index (-1 = don't map)
+  const [nameParamMap, setNameParamMap] = useState({ name: -1, first_name: -1, last_name: -1 });
   const [notionSegments, setNotionSegments] = useState([]);
 
   // ── Draft (one-off mode) ──────────────────────────────────────────────────────
@@ -192,11 +192,13 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
 
   // ── Load Notion segments ──────────────────────────────────────────────────────
 
-  useEffect(() => {
+  const loadNotionSegments = () => {
     api.getNotionSegments()
-      .then(segs => setNotionSegments(segs.map(s => s.name)))
+      .then(segs => { if (segs?.length) setNotionSegments(segs.map(s => s.name)); else setNotionSegments(FALLBACK_SEGMENTS); })
       .catch(() => setNotionSegments(FALLBACK_SEGMENTS));
-  }, []);
+  };
+
+  useEffect(() => { loadNotionSegments(); }, []);
 
   // ── Load templates ────────────────────────────────────────────────────────────
 
@@ -446,7 +448,9 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
       .filter(c => notionSelected.has(c.phone) && !existingPhones.has(c.phone.replace(/\D/g, '')))
       .map(c => {
         const params = Array(numParams).fill('');
-        if (notionNameParam >= 0 && notionNameParam < numParams) params[notionNameParam] = c[notionNameField] || c.name || '';
+        Object.entries(nameParamMap).forEach(([field, pi]) => {
+          if (pi >= 0 && pi < numParams && c[field]) params[pi] = c[field];
+        });
         return { phone: c.phone.replace(/\D/g, ''), params, mediaUrl: '' };
       });
     setRows(prev => {
@@ -1054,12 +1058,12 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
         {/* Content */}
         {showNotionDrawer ? (
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            <div className="shrink-0 px-3 py-2 border-b border-wa-border flex gap-1.5 overflow-x-auto scrollbar-none">
+            <div className="shrink-0 px-3 py-2 border-b border-wa-border flex gap-1.5 overflow-x-auto scrollbar-none items-center">
               {notionSegments.map(seg => {
                 const state = segmentStates[seg];
                 return (
                   <button key={seg} onClick={() => toggleNotionSegment(seg)}
-                    className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors border ${
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors border shrink-0 ${
                       state === 'include'
                         ? 'bg-wa-green text-wa-darker border-wa-green/50'
                         : state === 'exclude'
@@ -1069,6 +1073,9 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
                   >{seg}</button>
                 );
               })}
+              <button onClick={loadNotionSegments} className="shrink-0 ml-auto p-1 text-wa-muted/50 hover:text-wa-green transition-colors" title="Refresh tags">
+                <RefreshCw size={11} />
+              </button>
             </div>
             <div className="shrink-0 px-3 py-2 border-b border-wa-border">
               <div className="relative">
@@ -1080,23 +1087,28 @@ export default function BulkSendModal({ onClose, onSend, initialContacts = null,
               </div>
             </div>
             {numParams > 0 && (
-              <div className="shrink-0 px-3 py-2 border-b border-wa-border flex items-center gap-2 bg-wa-input/20">
-                <select value={notionNameField} onChange={e => setNotionNameField(e.target.value)}
-                  className="shrink-0 bg-wa-input text-wa-text text-xs rounded-lg px-2 py-1 outline-none border border-wa-border focus:ring-1 focus:ring-wa-green/30"
-                >
-                  <option value="name">Full name</option>
-                  <option value="first_name">First name</option>
-                  <option value="last_name">Last name</option>
-                </select>
-                <span className="text-[11px] text-wa-muted whitespace-nowrap">→</span>
-                <select value={notionNameParam} onChange={e => setNotionNameParam(parseInt(e.target.value))}
-                  className="flex-1 min-w-0 bg-wa-input text-wa-text text-xs rounded-lg px-2 py-1 outline-none border border-wa-border focus:ring-1 focus:ring-wa-green/30"
-                >
-                  <option value={-1}>Don't map</option>
-                  {Array.from({ length: numParams }, (_, i) => (
-                    <option key={i} value={i}>{paramLabels[i] || `Param ${i + 1}`}</option>
-                  ))}
-                </select>
+              <div className="shrink-0 px-3 py-2 border-b border-wa-border bg-wa-input/20 space-y-1.5">
+                <p className="text-[10px] text-wa-muted uppercase tracking-wide font-semibold">Map name → param</p>
+                {[
+                  { field: 'first_name', label: 'First name' },
+                  { field: 'last_name', label: 'Last name' },
+                  { field: 'name', label: 'Full name' },
+                ].map(({ field, label }) => (
+                  <div key={field} className="flex items-center gap-2">
+                    <span className="text-[11px] text-wa-muted w-[68px] shrink-0">{label}</span>
+                    <span className="text-[11px] text-wa-muted/50">→</span>
+                    <select
+                      value={nameParamMap[field]}
+                      onChange={e => setNameParamMap(prev => ({ ...prev, [field]: parseInt(e.target.value) }))}
+                      className="flex-1 min-w-0 bg-wa-input text-wa-text text-xs rounded-lg px-2 py-1 outline-none border border-wa-border focus:ring-1 focus:ring-wa-green/30"
+                    >
+                      <option value={-1}>Don't map</option>
+                      {Array.from({ length: numParams }, (_, i) => (
+                        <option key={i} value={i}>{paramLabels[i] || `Param ${i + 1}`}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
               </div>
             )}
             {filteredNotion.length > 0 && (
