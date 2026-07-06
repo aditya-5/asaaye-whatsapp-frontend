@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const NOTION_SEGMENTS = [
+const FALLBACK_SEGMENTS = [
   'Customer', 'Female', 'Male',
   'Exhibition-Kanpur', 'Exhibition-Mumbai', 'Exhibition-Jaipur', 'Exhibition-Lucknow',
   'Family/Friends',
@@ -106,6 +106,7 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
   const [notionActiveSegments, setNotionActiveSegments] = useState([]);
   const [notionSelected, setNotionSelected] = useState(new Set());
   const [notionNameParam, setNotionNameParam] = useState(-1); // -1 = don't map; 0..N = param index
+  const [notionSegments, setNotionSegments] = useState([]);
 
   // Category filter
   const [categoryFilter, setCategoryFilter] = useState('ALL');
@@ -142,6 +143,13 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
         if (raw) setDraftBanner(JSON.parse(raw));
       } catch {}
     }).catch(() => setLoading(false));
+  }, []);
+
+  // Load segment chips from Notion (fallback to static list)
+  useEffect(() => {
+    api.getNotionSegments()
+      .then(segs => { if (segs?.length) setNotionSegments(segs.map(s => s.name)); else setNotionSegments(FALLBACK_SEGMENTS); })
+      .catch(() => setNotionSegments(FALLBACK_SEGMENTS));
   }, []);
 
   // Pre-populate from initialContact
@@ -604,7 +612,7 @@ export default function TemplatePicker({ onClose, onSend, initialContact = null 
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
               {/* Segment chips */}
               <div className="shrink-0 px-3 py-2 border-b border-wa-border flex gap-1.5 overflow-x-auto scrollbar-none">
-                {NOTION_SEGMENTS.map(seg => (
+                {notionSegments.map(seg => (
                   <button key={seg} onClick={() => toggleNotionSegment(seg)}
                     className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${notionActiveSegments.includes(seg) ? 'bg-wa-green text-wa-darker' : 'bg-wa-input text-wa-muted hover:text-wa-text'}`}
                   >
